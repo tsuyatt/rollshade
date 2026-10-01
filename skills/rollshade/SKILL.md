@@ -1,0 +1,157 @@
+---
+name: rollshade
+description: Add ready-made spell, attack, heal and warp effects, status effects on characters (burning, frozen, poisoned, petrified, dissolving, shielded, stunned) and placed effects (torches, campfires, portals, magic circles, save points, barriers, auras, beacons) to a three.js game with the rollshade package (WebGPURenderer + TSL). Use when the user wants magic, attacks, hits, explosions, status effects, death or spawn effects, torches or portals in a three.js or browser game, or asks to make a three.js game feel juicier.
+---
+
+# rollshade: combat effects for three.js
+
+`rollshade` plays complete moves (charge-up, travel, impact, lingering smoke, lights, bloom, camera shake) with one call and tells the game when each hit lands. Do not hand-write particle systems or shaders for spells when this package is available.
+
+## Three kinds of effects
+
+| kind | names | how to use | never |
+|---|---|---|---|
+| Moves (one-shot attacks, heals, warps) | `projectile`, `meteor`, `slash`, … (table below) | `fx.add(effect('meteor', 'fire'))`, then `fx.play('fire-meteor', { from, to })` | |
+| Status effects on a character | `burn`, `freeze`, `shock`, `poison`, `petrify`, `dissolve`, `appear`, `bless`, `curse`, `shield`, `stun` | `fx.status(character, 'burn')` returns a handle; `.stop()` removes it | do not pass these to `effect()` or `fx.add()` |
+| Placed loops | `torch`, `campfire`, `candles`, `portal`, `sigil`, `savepoint`, `barrier`, `aura`, `beacon` | `fx.loop('torch', position)` returns a handle; `.stop()` removes it | do not pass these to `effect()` or `fx.add()` |
+
+Note that `barrier` exists twice: the move `effect('barrier', element)` is a short shield cast, the loop `fx.loop('barrier', pos)` is a lasting dome.
+
+## Setup
+
+```sh
+npm i rollshade three@0.186
+```
+
+three r186 (the peer range is pinned to one three release). The renderer must be `THREE.WebGPURenderer` from `three/webgpu` (it falls back to WebGL2 by itself). The classic `WebGLRenderer` cannot run it.
+
+```js
+import * as THREE from 'three/webgpu';
+import { FXSystem, effect } from 'rollshade';
+
+const renderer = new THREE.WebGPURenderer({ antialias: true });
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+await renderer.init();
+
+const fx = new FXSystem({ scene, camera, renderer, post: true, feel: true });
+fx.add(effect('meteor', 'fire'), effect('slash', 'thunder'), effect('heal', 'light'));
+await fx.prewarm();
+
+const timer = new THREE.Timer();
+renderer.setAnimationLoop((ms) => {
+  timer.update(ms);
+  const dt = Math.min(timer.getDelta(), 0.05);
+  fx.update(dt);
+  fx.render();
+});
+```
+
+`effect(recipe, element)` returns a plain definition whose id is `` `${element}-${recipe}` `` (for example `fire-meteor`). Play it by id after `fx.add()`, or pass the definition itself to `fx.play()`.
+
+## Casting and hits
+
+```js
+const h = fx.play('fire-meteor', { from: player.hand, to: enemy.chest });
+h.on('hit', (e) => {
+  enemy.hp -= Math.round(10 * e.power);
+  if (e.role === 'final') enemy.knockback(e.point);
+});
+h.on('end', () => {});
+```
+
+- Put damage, sounds and knockback in the `hit` handler, not on a timer. Multi-hit moves send several hits; `role` is `'first'`, `'link'`, `'final'` or `'tick'`. `power` is about 1 per hit (ticks less, finishers up to about 2.7). For a fixed damage per cast, apply it once when `e.index === 0` (not every move has a `'final'` hit).
+- `h.stop()` ends a move early and still fires `'end'`. `barrier`, `buff` and `warp` send no `hit`.
+- `from` and `to` take a `Vector3` or an `Object3D`. Pass an `Object3D` (for example an empty child of the character at hand or chest height) so the effect follows moving characters (`explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when cast).
+- `floorY` in the play options sets the ground under that move (for example a fight on a rooftop); otherwise `fx.floorY` is used. Loops use the height they are placed at.
+- Units are metres and characters are about 1.8 m tall. Scale the whole move with `{ scale }` if your world is bigger or smaller.
+- Several `fx.play()` calls can run at once, including the same move many times.
+
+## Moves
+
+`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D` (followed while it moves; `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall.
+
+| recipe | kind | from | to | what happens |
+|---|---|---|---|---|
+| `projectile` | magic | caster's hand | target | Charge, a curved shot (1–3), impact and follow-up blasts |
+| `lance` | magic | caster's hand | target | Fast straight spear that pierces and bursts behind the target |
+| `beam` | magic | caster's hand | target | Sustained beam with ticking hits and a big final impact |
+| `explosion` | magic | caster's hand | target | Light gathers on the target, then a blast with secondary explosions and a smoke column |
+| `pillar` | magic | caster's hand | target | Warning circle under the target, then a pillar erupts from the ground |
+| `meteor` | magic | caster's hand | target | Several meteors fall around the target; the last one hits hardest |
+| `nova` | magic | caster's chest | target | Blast centred on the caster with an outward shockwave that reaches `to`; the hit lands there |
+| `barrier` | magic | caster's chest | direction | Hexagon shield that ripples where it is hit, then shatters |
+| `shockwave` | magic | caster's hand | target | Crescent waves (1–3) thrown from an arm swing |
+| `summon` | magic | caster's hand | target | A gate opens (behind, above or under the target) and fires a huge elemental mass |
+| `missiles` | magic | caster's hand | target | Swarm of homing missiles with smoke trails |
+| `tornado` | magic | caster's hand | target | Tornado drifts onto the target, ticks, then flings it |
+| `storm` | magic | caster's hand | target | Elemental weather over an area: fire rain, blizzard, thunderstorm, sandstorm… |
+| `drill` | magic | caster's hand | target | Spinning cone that grinds into the target, then pierces |
+| `slash` | melee | attacker's chest | target | Wind-up and sweep; hits when the blade crosses the target |
+| `thrust` | melee | attacker's chest | target | Pull back and thrust with a piercing burst |
+| `spin` | melee | attacker's chest | target | Full spin slash with a ground ring and dust |
+| `cross` | melee | attacker's chest | target | Two diagonal slashes that explode as a cross |
+| `smash` | melee | attacker's chest | target | Overhead smash; a fissure runs to the target |
+| `iaido` | melee | attacker's chest | target | Gather light, one instant cut, a delayed slash mark and big impact |
+| `strike` | melee | attacker's chest | target | Jabs and a heavy punch with a forward shock cone |
+| `heal` | support | caster's hand | ally | Light flies to the ally and rises around them (hit with power 0) |
+| `buff` | support | caster's chest | (unused) | Burst and a lasting aura on the caster |
+| `warp` | support | caster's chest | destination | Caster vanishes and reappears on the ground 0.9–1.8 m in front of `to`, on the caster's side (`vanish` / `appear` events carry ground points) |
+| `finale` | event | (unused) | enemy's chest | Defeat: light rays, chained blasts, implosion and a flash |
+
+Melee moves expect the attacker about 2 m from the target. The blade path is written to `handle.blade.base` / `handle.blade.tip` every frame, so you can attach your own sword to it (`strike` is bare-handed and has no blade).
+
+**Elements:** `fire`, `ice`, `thunder`, `wind`, `earth`, `water`, `light`, `dark`, `poison`, `arcane`.
+
+## Status effects on characters
+
+```js
+await fx.prewarmStatus(enemyTemplate);                 // once per kind of model while loading; share materials between clones
+const s = fx.status(enemy, 'freeze', { duration: 1 }); // burn, freeze, shock, poison, petrify, dissolve, appear, bless, curse, shield, stun
+s.on('full', () => { enemy.userData.frozen = true; mixer.timeScale = 0; });
+s.stop();                                              // remove (freeze shatters, petrify crumbles, shield breaks)
+```
+
+- Pass the character root (`Object3D`, it must contain a mesh); skinned and animated meshes work. Statuses end by themselves when the target is removed from the scene.
+- `progress` 0–1 (`s.progress = x` or `s.to(x, seconds)`) drives how far freeze, petrify and dissolve have spread.
+- Death: `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))`. Spawn: `fx.status(enemy, 'appear')` (ends by itself).
+- Shield hits: `shield.impact(e.point)` from the attack's `hit` handler.
+- Stopping gameplay (animations, movement) while frozen or petrified is the game's job.
+- `duration` is the time to reach `progress`, not how long the status lasts. Statuses last until `.stop()` (only `appear` ends itself): use a timer for timed statuses.
+
+## Placed loops
+
+```js
+fx.loop('torch', new THREE.Vector3(x, 0, z));   // torch, campfire, candles, portal, sigil, savepoint, barrier, aura, beacon
+fx.loop('aura', hero, { element: 'light' });    // follows an Object3D
+fx.loop('portal', pos, { rotation: angle });    // portal faces +Z before rotation
+const l = fx.loop('barrier', pos); l.impact(p); l.stop();
+```
+
+- `prop: false` removes the built-in low-poly stand when the effect goes on your own model.
+- Only `loopLights` (default 4) loops light their surroundings; never add your own PointLight per torch (changing the light count recompiles every material).
+
+## Game patterns
+
+- **Enemy waves:** create one `FXSystem`, add every move once at load, and call `fx.play()` per cast. Never create a new `FXSystem` per cast.
+- **Melee:** move the attacker to about 2 m from the target before `fx.play()`; `from` is the attacker's chest. Attach a sword mesh to `h.blade.base` / `h.blade.tip` if you want one.
+- **Warp:** hide the player on `'vanish'`, then `h.on('appear', (e) => player.position.copy(e.point))`. The point is on the ground 0.9–1.8 m in front of `to`, on the caster's side, so pass the enemy as `to`, not a spot beside it.
+- **Heal:** the single `hit` has power 0; restore health in that handler.
+- **Defeat:** `fx.play(effect('finale', 'light'), { from: enemy.chest, to: enemy.chest })` when an enemy dies, then remove the enemy on `'end'`.
+- **Cooldowns and mana** are the game's job; the library only draws.
+- **Variety:** `effect('projectile', 'ice', { seed: 3 })` gives a different variation; `{ params: { count: 3 } }` overrides one value.
+
+## React Three Fiber
+
+Use `rollshade/react`: wrap the scene in `<FX effects={[...]} feel>`, get the system with `useFX()` (null until ready), and use `<Status target={ref} name="burn" />` and `<Loop name="torch" position={[x, y, z]} />`. The `<Canvas gl>` prop must create a `THREE.WebGPURenderer` from `three/webgpu` and `await renderer.init()`.
+
+## Rules
+
+1. Import three only from `three/webgpu` (and TSL from `three/tsl`; a hand-written import map must also map `three/addons/`). Importing `three` as well loads a second copy and breaks materials.
+2. `await renderer.init()` before the first frame and `await fx.prewarm()` while loading.
+3. Every frame: `fx.update(seconds)` then `fx.render()`. `fx.render()` also works with `post: false` (it then calls `renderer.render(scene, camera)` for you), so keep calling it unless the game has its own render pipeline.
+4. Clamp the frame delta (for example to 0.05 s) so a stalled tab does not jump effects forward.
+5. Only use the recipe and element names listed above. Unknown names throw an error that lists the valid ones.
+6. `feel: true` adds hit-stop and camera shake. The shake is applied only inside `fx.render()` and undone right after, so camera controllers and follow cameras keep working. If you render yourself instead of `fx.render()`, there is no shake; use `e.shake` from the hit event if you want one.
+7. `fx.clear()` on scene changes, `fx.dispose()` when the game shuts down.
+
+Full reference: https://rollshade.tsuyatt.com/llms-full.txt

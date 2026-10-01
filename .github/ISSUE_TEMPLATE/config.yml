@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem
+    url: https://github.com/tsuyatt/rollshade/security/advisories/new
+    about: Please report vulnerabilities privately here, not in a public issue.
+  - name: Browse and tune effects
+    url: https://rollshade.tsuyatt.com/
+    about: The site, the gallery and the demo game.
