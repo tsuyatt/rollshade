@@ -75,6 +75,7 @@ export type QualityPreset = 'auto' | 'high' | 'medium' | 'low';
 const NEAR = nearFade.value.clone();
 const FLOOR = sizeFloor.value as number;
 
+const WARM_STEPS = 8;
 const PRESETS: Record<Exclude<QualityPreset, 'auto'>, [number, number]> = { high: [1, 1], medium: [0.7, 0.75], low: [0.45, 0.55] };
 
 export class FXHandle {
@@ -410,11 +411,30 @@ export class FXSystem {
     for (const o of culled) o.frustumCulled = true;
   }
 
-  async prewarmStatus(target: THREE.Object3D, names: string[] = Object.keys(STATUSES)): Promise<void> {
+  private async compile(roots: THREE.Object3D[], onProgress?: (progress: number) => void): Promise<void> {
+    if (!this.post) {
+      await this.renderer.compileAsync(this.scene, this.camera, null, onProgress && ((e) => onProgress((0.9 * e.loaded) / Math.max(e.total, 1))));
+      if (this.disposed) return;
+      this.renderAll(roots);
+      onProgress?.(1);
+      return;
+    }
+    const meshes: THREE.Object3D[] = [];
+    for (const root of roots) root.traverse((o) => (o as THREE.Mesh).isMesh && o.visible && meshes.push(o));
+    const steps = Math.max(Math.min(WARM_STEPS, meshes.length), 1);
+    for (let step = 0; step < steps && !this.disposed; step++) {
+      meshes.forEach((m, i) => (m.visible = i % steps === step));
+      this.renderAll(roots);
+      onProgress?.((step + 1) / steps);
+      if (step < steps - 1) await new Promise((r) => setTimeout(r, 0));
+    }
+    for (const m of meshes) m.visible = true;
+  }
+
+  async prewarmStatus(target: THREE.Object3D, names: string[] = Object.keys(STATUSES), onProgress?: (progress: number) => void): Promise<void> {
     const runs = names.map((name) => this.status(target, name, { progress: 0, duration: 0 }));
-    await this.renderer.compileAsync(this.scene, this.camera);
+    await this.compile([target], onProgress);
     if (this.disposed) return;
-    this.renderAll([target]);
     for (const run of runs) run.finish();
     this.statuses.update(0, this.scheduler.time);
   }
@@ -442,7 +462,7 @@ export class FXSystem {
     return { effects: this.handles.size, loops: this.loops.size + this.fixtures.size, statuses: this.statuses.count, particles, solids: this.rocks.size + this.crystals.size + this.spikes.size, created: this.prims.created, quality: this.level };
   }
 
-  async prewarm(counts: Partial<Record<string, number>> = {}): Promise<void> {
+  async prewarm(counts: Partial<Record<string, number>> = {}, onProgress?: (progress: number) => void): Promise<void> {
     const want: Record<string, number> = { arc: 8, ribbon: 20, bolt: 48, beam: 12, shield: 3, void: 4, lathe: 8, latheSmoke: 3, helix: 8, ...counts };
     const made: { type: string; prim: ReturnType<PrimPool['fill']>[number] }[] = [];
     for (const [type, n] of Object.entries(want)) for (const prim of this.prims.fill(type, n ?? 0)) made.push({ type, prim });
@@ -466,7 +486,7 @@ export class FXSystem {
     this.prims.prime(true);
     const hidden = new THREE.Vector3(0, -1000, 0);
     const fixtures = Object.keys(FIXTURES).map((name) => this.loop(name, hidden));
-    await this.renderer.compileAsync(this.scene, this.camera);
+    await this.compile([this.root, ...fixtures.map((f) => f.group)], onProgress);
     if (this.disposed) {
       for (const { prim } of made) {
         prim.mesh.removeFromParent();
@@ -475,7 +495,6 @@ export class FXSystem {
       this.release();
       return;
     }
-    this.renderAll(fixtures.map((f) => f.group));
     for (const f of fixtures) f.finish();
     for (const sys of Object.values(this.particles)) sys.primeForCompile(false);
     this.rocks.primeForCompile(false);

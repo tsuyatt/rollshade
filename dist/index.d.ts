@@ -1,10 +1,10 @@
-// Rollshade FX runtime 0.1.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.1.1 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.1.0';
+export declare const VERSION: '0.1.1';
 
 /** A fixed point, or an Object3D whose world position is read every frame. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;
@@ -231,13 +231,13 @@ export declare class FXSystem {
   spawn(effect: string | LoopDef, options?: SpawnOptions): LoopHandle;
   /** Puts a status on a character or mesh (the target must contain a mesh). */
   status(target: THREE.Object3D, name: StatusName, options?: StatusOptions): StatusRun;
-  /** Compiles the status materials for this kind of model; call once while loading. */
-  prewarmStatus(target: THREE.Object3D, names?: StatusName[]): Promise<void>;
+  /** Compiles the status materials for this kind of model; call once while loading. `onProgress` gets 0–1. */
+  prewarmStatus(target: THREE.Object3D, names?: StatusName[], onProgress?: (progress: number) => void): Promise<void>;
   statusesOf(target: THREE.Object3D): StatusRun[];
   /** Places a lasting effect at a ground point, or on an Object3D it follows. */
   loop(name: LoopName, at: THREE.Vector3 | THREE.Object3D, options?: LoopOptions): FixtureRun;
-  /** Compiles every move and loop shader; await it once while loading. */
-  prewarm(counts?: Partial<Record<string, number>>): Promise<void>;
+  /** Compiles every move and loop shader; await it once while loading. `onProgress` gets 0–1, for a loading bar. */
+  prewarm(counts?: Partial<Record<string, number>>, onProgress?: (progress: number) => void): Promise<void>;
   /** Advances everything; clamp the delta (for example to 0.05 s). */
   update(seconds: number): void;
   /** Renders the scene with bloom and shake (or plainly with `post: false`). */

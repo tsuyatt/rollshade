@@ -1,4 +1,4 @@
-// Rollshade FX runtime 0.1.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.1.1 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
@@ -14094,6 +14094,7 @@ var BUDGET = {
 };
 var NEAR = nearFade.value.clone();
 var FLOOR = sizeFloor.value;
+var WARM_STEPS = 8;
 var PRESETS = {
 	high: [1, 1],
 	medium: [.7, .75],
@@ -14419,14 +14420,32 @@ var FXSystem = class {
 		else this.renderer.render(this.scene, this.camera);
 		for (const o of culled) o.frustumCulled = true;
 	}
-	async prewarmStatus(target, names = Object.keys(STATUSES)) {
+	async compile(roots, onProgress) {
+		if (!this.post) {
+			await this.renderer.compileAsync(this.scene, this.camera, null, onProgress && ((e) => onProgress(.9 * e.loaded / Math.max(e.total, 1))));
+			if (this.disposed) return;
+			this.renderAll(roots);
+			onProgress?.(1);
+			return;
+		}
+		const meshes = [];
+		for (const root of roots) root.traverse((o) => o.isMesh && o.visible && meshes.push(o));
+		const steps = Math.max(Math.min(WARM_STEPS, meshes.length), 1);
+		for (let step = 0; step < steps && !this.disposed; step++) {
+			meshes.forEach((m, i) => m.visible = i % steps === step);
+			this.renderAll(roots);
+			onProgress?.((step + 1) / steps);
+			if (step < steps - 1) await new Promise((r) => setTimeout(r, 0));
+		}
+		for (const m of meshes) m.visible = true;
+	}
+	async prewarmStatus(target, names = Object.keys(STATUSES), onProgress) {
 		const runs = names.map((name) => this.status(target, name, {
 			progress: 0,
 			duration: 0
 		}));
-		await this.renderer.compileAsync(this.scene, this.camera);
+		await this.compile([target], onProgress);
 		if (this.disposed) return;
-		this.renderAll([target]);
 		for (const run of runs) run.finish();
 		this.statuses.update(0, this.scheduler.time);
 	}
@@ -14458,7 +14477,7 @@ var FXSystem = class {
 			quality: this.level
 		};
 	}
-	async prewarm(counts = {}) {
+	async prewarm(counts = {}, onProgress) {
 		const want = {
 			arc: 8,
 			ribbon: 20,
@@ -14503,7 +14522,7 @@ var FXSystem = class {
 		this.prims.prime(true);
 		const hidden = new THREE.Vector3(0, -1e3, 0);
 		const fixtures = Object.keys(FIXTURES).map((name) => this.loop(name, hidden));
-		await this.renderer.compileAsync(this.scene, this.camera);
+		await this.compile([this.root, ...fixtures.map((f) => f.group)], onProgress);
 		if (this.disposed) {
 			for (const { prim } of made) {
 				prim.mesh.removeFromParent();
@@ -14512,7 +14531,6 @@ var FXSystem = class {
 			this.release();
 			return;
 		}
-		this.renderAll(fixtures.map((f) => f.group));
 		for (const f of fixtures) f.finish();
 		for (const sys of Object.values(this.particles)) sys.primeForCompile(false);
 		this.rocks.primeForCompile(false);
@@ -14644,7 +14662,7 @@ function effect(recipe, element = "fire", options = {}) {
 }
 //#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.1.0";
+var VERSION = "0.1.1";
 function defineEffect(def) {
 	return def;
 }

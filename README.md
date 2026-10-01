@@ -264,7 +264,7 @@ These are the mistakes AI assistants and people make most often:
 2. `await renderer.init()` before the first frame.
 3. Call `fx.update(seconds)` and then `fx.render()` every frame (clamp the delta, for example to 0.05 s). `fx.render()` also works with `post: false`; it applies the camera shake only for that render and puts the camera back.
 4. `fx.add()` a definition before calling `fx.play(id)` by its id, or pass the definition itself: `fx.play(effect('nova', 'ice'), { from, to })`.
-5. Call `await fx.prewarm()` once while loading, otherwise the first cast of each move stutters.
+5. Call `await fx.prewarm()` once while loading, otherwise the first cast of each move stutters. For a loading bar, pass a callback that gets 0–1: `fx.prewarm({}, (p) => (progress.value = p))`.
 6. Use a `WebGPURenderer`. The classic `WebGLRenderer` cannot run TSL; `WebGPURenderer` falls back to WebGL2 on its own.
 
 ## For AI coding assistants
