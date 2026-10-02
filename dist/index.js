@@ -1,4 +1,4 @@
-// Rollshade FX runtime 0.1.2 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.2.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
@@ -95,6 +95,12 @@ var LightPool = class {
 //#endregion
 //#region src/runtime/palette.ts
 var ELEMENTS = {
+	plain: {
+		core: 15922943,
+		main: 11122892,
+		accent: 4871526,
+		smoke: 2894896
+	},
 	fire: {
 		core: 16774358,
 		main: 16742938,
@@ -156,18 +162,24 @@ var ELEMENTS = {
 		smoke: null
 	}
 };
-function palette(element, hueShift = 0) {
+var WHITE = new Color(1, 1, 1);
+function palette(element, hueShift = 0, color) {
 	const e = ELEMENTS[element] ?? ELEMENTS.fire;
-	const shift = (hex) => {
-		const c = new Color(hex);
-		if (hueShift) c.offsetHSL(hueShift, 0, 0);
-		return c;
-	};
+	const shift = (c) => hueShift ? c.offsetHSL(hueShift, 0, 0) : c;
+	if (color != null) {
+		const main = new Color(color);
+		return {
+			core: shift(main.clone().lerp(WHITE, .82)),
+			main: shift(main.clone()),
+			accent: shift(main.clone().multiplyScalar(.3)),
+			smoke: e.smoke == null ? null : shift(new Color(e.smoke))
+		};
+	}
 	return {
-		core: shift(e.core),
-		main: shift(e.main),
-		accent: shift(e.accent),
-		smoke: e.smoke == null ? null : shift(e.smoke)
+		core: shift(new Color(e.core)),
+		main: shift(new Color(e.main)),
+		accent: shift(new Color(e.accent)),
+		smoke: e.smoke == null ? null : shift(new Color(e.smoke))
 	};
 }
 //#endregion
@@ -1825,6 +1837,9 @@ var PrimPool = class {
 			return;
 		}
 		prim.mesh.removeFromParent();
+		prim.mesh.position.set(0, 0, 0);
+		prim.mesh.quaternion.identity();
+		prim.mesh.scale.set(1, 1, 1);
 		const type = prim.mesh.userData.type;
 		if (!this.free.has(type)) this.free.set(type, []);
 		const list = this.free.get(type);
@@ -2265,8 +2280,15 @@ var RibbonTrail = class {
 };
 //#endregion
 //#region src/runtime/elements.ts
-var UP$7 = new THREE.Vector3(0, 1, 0);
+var UP$8 = new THREE.Vector3(0, 1, 0);
 var CIRCLES = {
+	plain: {
+		sidesA: 0,
+		skipA: 1,
+		dots: 4,
+		runes: 0,
+		ticks: 1
+	},
 	fire: {
 		sidesA: 3,
 		skipA: 1,
@@ -2427,6 +2449,115 @@ function acid(c, chance) {
 	});
 }
 var ELEMENT_FX = {
+	plain: {
+		sparks: 1.3,
+		glare: .75,
+		physical: true,
+		swirl(c, around, orbit, rate) {
+			c.emit("spark", poisson(40 * rate), {
+				p: around(.8, .3),
+				orbit: orbit(10, 2, .4, 1, 1),
+				life: [.15, .3],
+				size: [.01, .018],
+				stretch: .04,
+				colors: c.cols("core", "main"),
+				bright: 2.4 * c.B,
+				fadeIn: 0
+			});
+			c.emit("mote", poisson(25 * rate), {
+				p: around(1),
+				orbit: orbit(6, 1.5, .5, 1.1, 1),
+				life: [.5, .9],
+				size: [.015, .025],
+				colors: c.cols("core", "main"),
+				bright: 1.6 * c.B
+			});
+		},
+		burst(c, p, { n, s, sp, vel }) {
+			const B = c.B;
+			c.emit("spark", n * .7, {
+				p,
+				jitter: .05 * s,
+				v: vel(sp * .6, sp * 1.6),
+				life: [.15, .45],
+				size: [.01, .022],
+				gravity: 9,
+				drag: 1.4,
+				stretch: .04,
+				bounce: .25,
+				colors: c.cols("core", "main"),
+				bright: 2.8 * B,
+				fadeIn: 0
+			});
+			c.emit("shard", n * .12, {
+				p,
+				jitter: .08 * s,
+				v: vel(sp * .3, sp * .9),
+				life: [.4, .8],
+				size: [.02 * s, .045 * s],
+				gravity: 9,
+				drag: 1,
+				spin: [-12, 12],
+				bounce: .3,
+				colors: [
+					c.pal.main.clone().multiplyScalar(.8),
+					c.pal.accent,
+					c.pal.accent
+				],
+				bright: 1.1 * B,
+				fadeIn: 0
+			});
+			c.smoke(p, n * .06 * s, {
+				size: [.22 * s, .4 * s],
+				speed: [.6, 1.6],
+				gravity: -.2,
+				delay: [0, .05]
+			});
+		},
+		trail(c, a) {
+			c.emit("spark", rate(a, 60), {
+				p: along(a),
+				jitter: .03 * a.s,
+				v: () => back(a, .05).add(randomDir().multiplyScalar(.8)),
+				life: [.08, .2],
+				size: [.008, .014],
+				gravity: 6,
+				stretch: .03,
+				colors: c.cols("core", "main"),
+				bright: 2.2 * c.B,
+				fadeIn: 0
+			});
+		},
+		decal: {
+			tint: (c) => (c.pal.smoke ?? c.pal.accent).clone().multiplyScalar(.5),
+			ember: "accent",
+			glow: 0,
+			decay: 2,
+			crackScale: 5,
+			crackWidth: .05,
+			alpha: .7,
+			core: 0
+		},
+		extra(c, p, pw, s) {
+			const g = c.ground(p);
+			c.dust(g, 1.4 * s);
+			c.emitShape("spark", 40 * pw, {
+				type: "circle",
+				at: g.clone().setY(g.y + .05),
+				r: .3 * s
+			}, {
+				outward: [3, 7],
+				v: () => new THREE.Vector3(0, 1.5 + Math.random() * 2, 0),
+				life: [.2, .45],
+				size: [.01, .02],
+				gravity: 9,
+				stretch: .04,
+				colors: c.cols("core", "main"),
+				bright: 2.6 * c.B,
+				fadeIn: 0
+			});
+		}
+	},
 	fire: {
 		sparks: 1,
 		swirl(c, around, orbit, rate) {
@@ -2897,7 +3028,7 @@ var ELEMENT_FX = {
 		trail(c, a) {
 			const B = c.B;
 			const dir = a.vel.clone().normalize();
-			const side = dir.clone().cross(UP$7).normalize();
+			const side = dir.clone().cross(UP$8).normalize();
 			const up = side.clone().cross(dir).normalize();
 			const n = rate(a, 140);
 			for (let i = 0; i < n; i++) {
@@ -3202,7 +3333,7 @@ var ELEMENT_FX = {
 			const g = c.ground(p);
 			c.emit("spark", 120 * pw * s, {
 				p: () => g.clone().add(randomDir().setY(0).multiplyScalar(.4 * s)),
-				v: () => coneDir(UP$7, .35).multiplyScalar((4 + Math.random() * 4) * Math.sqrt(s)),
+				v: () => coneDir(UP$8, .35).multiplyScalar((4 + Math.random() * 4) * Math.sqrt(s)),
 				life: [.6, 1.1],
 				size: [.025 * s, .04 * s],
 				gravity: 10,
@@ -3778,7 +3909,7 @@ var ELEMENT_FX = {
 				slot: "target"
 			});
 			c.ring(p, 1.2 * s, {
-				normal: UP$7,
+				normal: UP$8,
 				dur: .5,
 				thick: .05,
 				delay: .05
@@ -3808,7 +3939,7 @@ var ease = {
 };
 var clamp01 = (t) => Math.min(Math.max(t, 0), 1);
 var span = (k, a, b) => clamp01((k - a) / (b - a));
-var UP$6 = new THREE.Vector3(0, 1, 0);
+var UP$7 = new THREE.Vector3(0, 1, 0);
 var v3 = () => new THREE.Vector3();
 function resolve(a, out = v3()) {
 	return a instanceof THREE.Object3D ? a.getWorldPosition(out) : out.copy(a);
@@ -4031,7 +4162,7 @@ var Ctx = class {
 			const normal = o.normal ?? "up";
 			const orient = () => {
 				if (normal === "camera") m.quaternion.copy(this.fx.camera.quaternion);
-				else if (normal === "up") m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), UP$6);
+				else if (normal === "up") m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), UP$7);
 				else m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal.clone().normalize());
 			};
 			orient();
@@ -4073,7 +4204,7 @@ var Ctx = class {
 		})) prim.u[k].value = v;
 		prim.u.mode.value = style === 5 ? 1 : style === 6 ? 2 : 0;
 		const normal = o.normal ?? "up";
-		if (normal === "up") m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), UP$6);
+		if (normal === "up") m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), UP$7);
 		else if (normal !== "camera") m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal.clone().normalize());
 		const spin = o.spin ?? 1;
 		const flat = normal === "up";
@@ -4209,7 +4340,7 @@ var Ctx = class {
 		this.emit("smoke", n, {
 			p,
 			jitter: .2,
-			dir: UP$6,
+			dir: UP$7,
 			spread: .6,
 			speed: [.5, 1.5],
 			life: [1.1, 2],
@@ -4288,11 +4419,12 @@ var Ctx = class {
 	impact(p, o = {}) {
 		const pw = (o.power ?? 1) * this.power;
 		const s = (o.scale ?? 1) * this.scale;
-		this.light(p, 3 * pw * s, .4);
+		const physical = this.efx.physical === true;
+		this.light(p, (physical ? 1.5 : 3) * pw * s, .4);
 		this.star(p, 1.5 * s * Math.sqrt(pw), .16);
-		this.flare(p, s * pw);
-		this.glow(p, 1.1 * s * Math.sqrt(pw), .3, 1.6);
-		this.sphere(p, .9 * s * Math.sqrt(pw), .45, 1.6);
+		if (!physical) this.flare(p, s * pw);
+		this.glow(p, (physical ? .6 : 1.1) * s * Math.sqrt(pw), physical ? .18 : .3, 1.6);
+		if (!physical) this.sphere(p, .9 * s * Math.sqrt(pw), .45, 1.6);
 		this.ring(p, 1.3 * s, {
 			normal: o.ringNormal ?? "camera",
 			dur: .35,
@@ -4315,13 +4447,16 @@ var Ctx = class {
 			scale: o.scale
 		});
 		if (o.extra) this.efx.extra(this, p, pw, s);
-		if (o.hit !== false) this.hit(p, pw * s, o.role);
+		if (o.hit !== false) this.hit(p, pw * s, o.role, o.push ?? o.dir);
 	}
 	lastAnime = -1;
 	stopUsed = 0;
 	stopEnd = -1;
-	hit(p, pw, role) {
+	hit(p, pw, role, push) {
 		const now = this.fx.scheduler.time;
+		const dir = push ? push.clone() : p.clone().sub(this.from()).setY(0);
+		if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0);
+		dir.normalize();
 		const r = role ?? (this.hits === 0 ? "first" : "link");
 		if ((this.params.anime ?? 0) > 0 && pw >= .75 && r !== "tick" && this.fx.scheduler.time - this.lastAnime > .12) {
 			this.lastAnime = this.fx.scheduler.time;
@@ -4351,7 +4486,8 @@ var Ctx = class {
 			index: this.hits++,
 			shake,
 			hitStop: stop,
-			role: r
+			role: r,
+			dir
 		};
 		this.handle.emit("hit", e);
 		if (!this.fx.feel) return;
@@ -4414,7 +4550,7 @@ var Ctx = class {
 		for (let i = 0; i < n; i++) {
 			const out = randomDir();
 			const start = p.clone().addScaledVector(out, r * (.8 + Math.random() * .6));
-			const swirl = out.clone().cross(UP$6).normalize().multiplyScalar((2.5 + Math.random() * 1.5) * Math.sqrt(r));
+			const swirl = out.clone().cross(UP$7).normalize().multiplyScalar((2.5 + Math.random() * 1.5) * Math.sqrt(r));
 			this.emit("spark", 1, {
 				p: start,
 				v: () => swirl.clone(),
@@ -4690,8 +4826,10 @@ var Ctx = class {
 		prim.u.time.value = 0;
 		const hold = o.hold ?? .12;
 		const total = o.dur + hold + o.lag * o.dur;
+		if (o.offset) prim.mesh.position.copy(o.offset);
 		this.live(prim, total, (_k, age) => {
 			prim.u.time.value = age;
+			if (o.offset && age <= o.dur) prim.mesh.position.copy(o.offset);
 			const k = Math.min(age / o.dur, 1);
 			const over = Math.max(age - o.dur, 0);
 			prim.u.head.value = o.ease(k) + over / o.dur;
@@ -4699,6 +4837,30 @@ var Ctx = class {
 		});
 	}
 	crescent(p, size, screenAngle, o = {}) {
+		if (o.from) {
+			const cam0 = this.fx.camera;
+			const aspect = cam0.aspect ?? 1;
+			const flat = (v) => {
+				const q = v.clone().project(cam0);
+				return new THREE.Vector2(q.x * aspect, q.y);
+			};
+			let bulge;
+			const r = p.clone().sub(o.from);
+			const t = o.tangent ? o.tangent.clone().sub(r.clone().multiplyScalar(o.tangent.dot(r) / Math.max(r.lengthSq(), 1e-6))) : null;
+			if (t && t.lengthSq() > 1e-6 && r.lengthSq() > 1e-4) {
+				const d = .35;
+				t.normalize().multiplyScalar(r.length() * Math.sin(d));
+				const rc = r.clone().multiplyScalar(Math.cos(d));
+				const a = flat(o.from.clone().add(rc).sub(t));
+				const b = flat(o.from.clone().add(rc).add(t));
+				const mid = flat(p);
+				const chord = b.clone().sub(a);
+				if (chord.lengthSq() > 1e-8) screenAngle = Math.atan2(chord.y, chord.x);
+				bulge = mid.sub(a.add(b).multiplyScalar(.5));
+				if (bulge.lengthSq() < 1e-10) bulge = flat(p).sub(flat(o.from));
+			} else bulge = flat(p).sub(flat(o.from));
+			if (-Math.sin(screenAngle) * bulge.x + Math.cos(screenAngle) * bulge.y < 0) screenAngle += Math.PI;
+		}
 		const prim = this.fx.prims.acquire("crescent");
 		const m = prim.mesh;
 		prim.u.core.value.copy(this.pal.core);
@@ -4772,7 +4934,7 @@ var Ctx = class {
 			u.accent.value.copy(this.color(c2));
 			const bright = (o.bright ?? 1.4) * (o.smoke ? 1 : this.B * this.glare);
 			u.bright.value = bright;
-			if (o.axis) m.quaternion.setFromUnitVectors(UP$6, o.axis.clone().normalize());
+			if (o.axis) m.quaternion.setFromUnitVectors(UP$7, o.axis.clone().normalize());
 			else m.quaternion.identity();
 			m.renderOrder = o.smoke ? 1 : 3;
 			let last = 0;
@@ -4860,7 +5022,7 @@ var Ctx = class {
 			const orient = () => {
 				if (o.quat) m.quaternion.copy(o.quat);
 				else if (normal === "camera") m.quaternion.copy(this.fx.camera.quaternion);
-				else if (normal === "up") m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), UP$6);
+				else if (normal === "up") m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), UP$7);
 				else m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal.clone().normalize());
 			};
 			orient();
@@ -5358,7 +5520,7 @@ function pickRange(r, fallback) {
 	return r[0] + Math.random() * (r[1] - r[0]);
 }
 function basis(axis, e1, e2) {
-	const ax = (axis ?? UP$6).clone().normalize();
+	const ax = (axis ?? UP$7).clone().normalize();
 	e1.set(1, 0, 0);
 	if (Math.abs(ax.dot(e1)) > .9) e1.set(0, 0, 1);
 	e1.sub(ax.clone().multiplyScalar(ax.dot(e1))).normalize();
@@ -5392,19 +5554,19 @@ function sampleShape(s, i, n, p, nrm, tan) {
 		p.copy(s.at).addScaledVector(nrm, s.r).setY(s.at.y + Math.random() * s.h);
 	} else {
 		randomDir(nrm);
-		tan.crossVectors(UP$6, nrm).normalize();
+		tan.crossVectors(UP$7, nrm).normalize();
 		p.copy(s.at).addScaledVector(nrm, s.shell === false ? s.r * Math.cbrt(Math.random()) : s.r);
 	}
 }
 //#endregion
 //#region src/runtime/recipes/magic.ts
-var UP$5 = new THREE.Vector3(0, 1, 0);
+var UP$6 = new THREE.Vector3(0, 1, 0);
 function aimOf$2(ctx) {
 	const d = ctx.to().sub(ctx.from());
 	return d.lengthSq() > 1e-6 ? d.normalize() : new THREE.Vector3(0, 0, -1);
 }
 function sideOf(aim) {
-	const s = aim.clone().cross(UP$5);
+	const s = aim.clone().cross(UP$6);
 	return s.lengthSq() > 1e-6 ? s.normalize() : new THREE.Vector3(1, 0, 0);
 }
 function launchFlash(ctx, at, aim, s) {
@@ -5532,7 +5694,7 @@ function projectile(ctx, p) {
 			const aim = b0.clone().sub(a).normalize();
 			const side = sideOf(aim);
 			const sign = count > 1 ? i / (count - 1) * 2 - 1 : Math.random() < .5 ? -1 : 1;
-			const curve = side.multiplyScalar(dist * .16 * p.curve * sign).addScaledVector(UP$5, dist * .1 * p.curve);
+			const curve = side.multiplyScalar(dist * .16 * p.curve * sign).addScaledVector(UP$6, dist * .1 * p.curve);
 			const spreadTo = count > 1 ? sideOf(aim).multiplyScalar(sign * .25) : new THREE.Vector3();
 			launchFlash(ctx, a, aim, p.size);
 			missile(ctx, a, () => ctx.to().add(spreadTo), {
@@ -6001,7 +6163,7 @@ function meteor(ctx, p) {
 	ctx.part("cast");
 	ctx.charge(hand, .35, {
 		radius: .5,
-		aim: UP$5.clone(),
+		aim: UP$6.clone(),
 		ground: hand
 	});
 	ctx.part("main");
@@ -6072,7 +6234,7 @@ function nova(ctx, p) {
 	ctx.charge(c, p.charge, {
 		radius: .9,
 		ground: c,
-		aim: UP$5.clone()
+		aim: UP$6.clone()
 	});
 	targetCircle(ctx, 1.2 * s, p.charge + .8);
 	ctx.during(0, p.charge, (k, dt) => {
@@ -6189,7 +6351,7 @@ function nova(ctx, p) {
 					ctx.burst(q, {
 						count: 30,
 						speed: 4,
-						dir: UP$5,
+						dir: UP$6,
 						spread: .6,
 						scale: .9 * p.size
 					});
@@ -6322,16 +6484,30 @@ barrier$1.defaults = {
 	poke: .45
 };
 //#endregion
+//#region src/runtime/recipes/own.ts
+var owners = /* @__PURE__ */ new WeakMap();
+var serial = 0;
+function claim(handle, slot) {
+	const id = ++serial;
+	const map = owners.get(handle) ?? {};
+	map[slot] = id;
+	owners.set(handle, map);
+	return id;
+}
+function owns(handle, slot, id) {
+	return owners.get(handle)?.[slot] === id;
+}
+//#endregion
 //#region src/runtime/recipes/melee.ts
-var UP$4 = new THREE.Vector3(0, 1, 0);
+var UP$5 = new THREE.Vector3(0, 1, 0);
 var DEG = Math.PI / 180;
-function frame$1(ctx, reach = 0) {
+function frame$2(ctx, reach = 0) {
 	const pivot = ctx.from();
 	const target = ctx.to();
 	const fwd = target.clone().sub(pivot).setY(0);
 	if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
 	fwd.normalize();
-	const right = fwd.clone().cross(UP$4).normalize();
+	const right = fwd.clone().cross(UP$5).normalize();
 	const dist = pivot.distanceTo(target);
 	return {
 		pivot,
@@ -6345,7 +6521,11 @@ function swing(ctx, f, o) {
 	ctx.part("swing");
 	const roll = o.roll * DEG;
 	const e1 = f.fwd;
-	const e2 = f.right.clone().multiplyScalar(Math.cos(roll)).addScaledVector(UP$4, Math.sin(roll));
+	const e2 = f.right.clone().multiplyScalar(Math.cos(roll) * (o.mirror ? -1 : 1)).addScaledVector(UP$5, Math.sin(roll));
+	const body = ctx.handle.body;
+	const side = Math.cos(roll) * (o.mirror ? -1 : 1);
+	const step = o.step ?? .35;
+	const [lean0, lean1] = o.lean ?? [-.15, .3];
 	const r1 = f.reach;
 	const r0 = r1 * .28;
 	const a0 = o.a0 * DEG;
@@ -6354,8 +6534,8 @@ function swing(ctx, f, o) {
 	const blade = ctx.handle.blade;
 	const pose = (a) => {
 		const d = e1.clone().multiplyScalar(Math.cos(a)).addScaledVector(e2, Math.sin(a));
-		blade.base.copy(f.pivot).addScaledVector(d, r0);
-		blade.tip.copy(f.pivot).addScaledVector(d, r1);
+		blade.base.copy(f.pivot).add(body.offset).addScaledVector(d, r0);
+		blade.tip.copy(f.pivot).add(body.offset).addScaledVector(d, r1);
 	};
 	const angle = (k) => a0 + (a1 - a0) * e(k);
 	const hits = [];
@@ -6363,14 +6543,25 @@ function swing(ctx, f, o) {
 	for (let i = 1; i <= steps; i++) if (Math.floor(angle((i - 1) / steps) / (Math.PI * 2)) !== Math.floor(angle(i / steps) / (Math.PI * 2))) hits.push(i / steps);
 	const t0 = o.delay ?? 0;
 	const W = o.windup;
+	let id = 0;
+	const mine = () => owns(ctx.handle, "swing", id);
 	ctx.after(t0, () => {
+		id = claim(ctx.handle, "swing");
 		blade.active = true;
 		const start = angle(0) * .35;
-		if (W > 0) ctx.during(0, W, (k) => pose(start + (angle(0) + Math.sign(a0 - a1) * .2 - start) * ease.inOutQuad(k)));
+		if (W > 0) ctx.during(0, W, (k) => {
+			if (!mine()) return;
+			const a = start + (angle(0) + Math.sign(a0 - a1) * .2 - start) * ease.inOutQuad(k);
+			pose(a);
+			body.lean = lean0 * ease.inOutQuad(k);
+			body.turn = -Math.sin(a) * side * .6;
+		});
 		if (o.glint !== false && W > .05) ctx.after(W * .6, () => ctx.star(blade.tip.clone(), .5 * ctx.scale, .18, 2.5));
 	});
 	ctx.after(t0 + W, () => {
 		const lead = Math.sign(a0 - a1) * .2;
+		const from = body.offset.clone();
+		const shift = from.clone();
 		if (o.trail !== false) ctx.arc({
 			pivot: f.pivot,
 			e1,
@@ -6382,38 +6573,59 @@ function swing(ctx, f, o) {
 			dur: o.dur,
 			ease: e,
 			lag: o.lag,
-			hold: .2
+			hold: .2,
+			offset: shift
 		});
 		const prevTip = blade.tip.clone();
 		let hi = 0;
 		ctx.during(0, o.dur, (k, dt) => {
 			const a = a0 + lead + (a1 - a0 - lead) * e(k);
-			pose(a);
-			const tipVel = dt > 0 ? blade.tip.clone().sub(prevTip).divideScalar(dt) : new THREE.Vector3();
-			const sp = o.sparks ?? 1;
-			ctx.emit("spark", poisson(sp * 260 * dt * ctx.efx.sparks), {
-				p: () => blade.base.clone().lerp(blade.tip, .55 + Math.random() * .45),
-				v: () => tipVel.clone().multiplyScalar(.15).add(randomDir().multiplyScalar(1.2)),
-				life: [.15, .4],
-				size: [.01, .02],
-				gravity: 4,
-				drag: 3,
-				stretch: .03,
-				colors: ctx.cols("core", "main"),
-				bright: 2.5 * ctx.B,
-				fadeIn: 0
-			});
-			ctx.trail(blade.tip, prevTip, tipVel, dt * .35 * sp, .55, 1);
-			prevTip.copy(blade.tip);
+			if (mine()) {
+				body.lean = lean0 + (lean1 - lean0) * e(k);
+				body.turn = -Math.sin(a) * side * .6;
+				body.offset.copy(from).addScaledVector(f.fwd, step * e(k));
+				shift.copy(body.offset);
+				pose(a);
+				const tipVel = dt > 0 ? blade.tip.clone().sub(prevTip).divideScalar(dt) : new THREE.Vector3();
+				const sp = o.sparks ?? 1;
+				ctx.emit("spark", poisson(sp * 260 * dt * ctx.efx.sparks), {
+					p: () => blade.base.clone().lerp(blade.tip, .55 + Math.random() * .45),
+					v: () => tipVel.clone().multiplyScalar(.15).add(randomDir().multiplyScalar(1.2)),
+					life: [.15, .4],
+					size: [.01, .02],
+					gravity: 4,
+					drag: 3,
+					stretch: .03,
+					colors: ctx.cols("core", "main"),
+					bright: 2.5 * ctx.B,
+					fadeIn: 0
+				});
+				ctx.trail(blade.tip, prevTip, tipVel, dt * .35 * sp, .55, 1);
+				prevTip.copy(blade.tip);
+			}
 			while (hi < hits.length && k >= hits[hi]) {
 				const tangent = e2.clone().multiplyScalar(Math.sign(a1 - a0));
 				ctx.part("hit");
 				if (o.onHit) o.onHit(hi, tangent);
-				else strike$1(ctx, f, tangent, 1);
+				else strike$1(ctx, f, tangent, 1, { push: o.push });
 				ctx.part("swing");
 				hi++;
 			}
-		}, () => ctx.after(.12, () => blade.active = false));
+		}, () => {
+			ctx.after(.12, () => {
+				if (mine()) blade.active = false;
+			});
+			const lean = body.lean;
+			const turn = body.turn;
+			const held = body.offset.clone();
+			ctx.during(.1, .35, (k) => {
+				if (!mine()) return;
+				const q = ease.inOutQuad(k);
+				body.lean = lean * (1 - q);
+				body.turn = turn * (1 - q);
+				body.offset.copy(held).multiplyScalar(1 - q);
+			});
+		});
 	});
 	return t0 + W + o.dur;
 }
@@ -6424,29 +6636,32 @@ function screenAngle(ctx, at, dir) {
 	return Math.atan2(s1.y - s0.y, (s1.x - s0.x) * (cam.aspect ?? 1));
 }
 function strike$1(ctx, f, tangent, pw, o = {}) {
-	const target = ctx.to();
+	const target = o.at ?? ctx.to();
 	const ang = screenAngle(ctx, target, tangent);
 	const power = pw * ctx.power;
-	ctx.crescent(target, (o.mark ?? 1.9) * ctx.scale, ang, { hold: .28 });
-	if (power > 1.1) ctx.after(.04, () => ctx.crescent(target, 1.5 * ctx.scale, ang + .18, {
-		hold: .22,
-		bend: .2
-	}));
+	if (o.mark !== 0) ctx.crescent(target, (o.mark ?? 1.9) * ctx.scale * (power > 1.1 ? 1.1 : 1), ang, {
+		hold: .28,
+		from: f.pivot,
+		tangent
+	});
 	const out = f.fwd.clone().add(tangent.clone().multiplyScalar(.8)).normalize();
 	ctx.impact(target, {
 		power: pw,
 		dir: out,
+		push: o.push,
 		ringNormal: "camera",
 		scale: o.scale ?? .8,
-		extra: o.extra
+		extra: o.extra,
+		role: o.role
 	});
 }
 function slash(ctx, p) {
-	const f = frame$1(ctx, p.reach);
+	const f = frame$2(ctx, p.reach);
 	ctx.handle.emit("cast");
 	ctx.after(p.windup, () => ctx.handle.emit("release"));
 	swing(ctx, f, {
 		roll: p.roll,
+		mirror: p.mirror >= .5,
 		a0: p.sweep / 2,
 		a1: -p.sweep / 2,
 		windup: p.windup,
@@ -6459,15 +6674,61 @@ function slash(ctx, p) {
 slash.defaults = {
 	windup: .12,
 	dur: .18,
-	sweep: 200,
-	roll: 24,
+	sweep: 190,
+	roll: 55,
+	mirror: 0,
 	reach: 0,
 	lag: .6,
 	power: 1,
 	sparks: 1
 };
+function swipe(ctx, p) {
+	const f = frame$2(ctx, p.reach);
+	ctx.handle.emit("cast");
+	ctx.after(p.windup, () => ctx.handle.emit("release"));
+	swing(ctx, f, {
+		roll: p.roll,
+		mirror: p.mirror >= .5,
+		a0: p.sweep / 2,
+		a1: -p.sweep / 2,
+		windup: p.windup,
+		dur: p.dur,
+		lag: p.lag,
+		sparks: p.sparks,
+		glint: false,
+		onHit: (_i, t) => {
+			const at = ctx.to();
+			if (p.sparks > 0) ctx.emitShape("spark", Math.round(24 * p.sparks), {
+				type: "sphere",
+				at,
+				r: .1
+			}, {
+				v: () => t.clone().multiplyScalar(3 + Math.random() * 3).add(randomDir().multiplyScalar(1.5)),
+				life: [.1, .25],
+				size: [.01, .018],
+				gravity: 4,
+				stretch: .04,
+				colors: ctx.cols("core", "main"),
+				bright: 2.4 * ctx.B,
+				fadeIn: 0
+			});
+			ctx.hit(at, p.power);
+		}
+	});
+}
+swipe.defaults = {
+	windup: .1,
+	dur: .16,
+	sweep: 190,
+	roll: 55,
+	mirror: 0,
+	reach: 0,
+	lag: .6,
+	power: 1,
+	sparks: .3
+};
 function spin(ctx, p) {
-	const f = frame$1(ctx, p.reach);
+	const f = frame$2(ctx, p.reach);
 	ctx.handle.emit("cast");
 	ctx.after(p.windup, () => ctx.handle.emit("release"));
 	const end = swing(ctx, f, {
@@ -6500,7 +6761,7 @@ spin.defaults = {
 	power: 1.1
 };
 function cross$1(ctx, p) {
-	const f = frame$1(ctx, p.reach);
+	const f = frame$2(ctx, p.reach);
 	ctx.handle.emit("cast");
 	ctx.after(p.windup, () => ctx.handle.emit("release"));
 	const marks = [];
@@ -6514,7 +6775,11 @@ function cross$1(ctx, p) {
 		onHit: (_i, t) => {
 			const ang = screenAngle(ctx, ctx.to(), t);
 			marks.push(ang);
-			ctx.crescent(ctx.to(), 2 * ctx.scale, ang, { hold: p.gap + .3 });
+			ctx.crescent(ctx.to(), 2 * ctx.scale, ang, {
+				hold: p.gap + .3,
+				from: f.pivot,
+				tangent: t
+			});
 			ctx.burst(ctx.to(), {
 				count: 30,
 				dir: f.fwd,
@@ -6534,7 +6799,11 @@ function cross$1(ctx, p) {
 		glint: false,
 		onHit: (_i, t) => {
 			const ang = screenAngle(ctx, ctx.to(), t);
-			ctx.crescent(ctx.to(), 2 * ctx.scale, ang, { hold: p.gap + .1 });
+			ctx.crescent(ctx.to(), 2 * ctx.scale, ang, {
+				hold: p.gap + .1,
+				from: f.pivot,
+				tangent: t
+			});
 			ctx.burst(ctx.to(), {
 				count: 30,
 				dir: f.fwd,
@@ -6546,7 +6815,10 @@ function cross$1(ctx, p) {
 	ctx.after(second + p.gap, () => {
 		ctx.part("hit");
 		const t = ctx.to();
-		for (const a of marks) ctx.crescent(t, 2.4 * ctx.scale, a, { hold: .2 });
+		for (const a of marks) ctx.crescent(t, 2.4 * ctx.scale, a, {
+			hold: .2,
+			from: f.pivot
+		});
 		ctx.screenFlash(.25);
 		ctx.impact(t, {
 			power: p.power,
@@ -6565,13 +6837,16 @@ cross$1.defaults = {
 	power: 1.6
 };
 function thrust(ctx, p) {
-	const f = frame$1(ctx, p.reach);
+	const f = frame$2(ctx, p.reach);
 	const blade = ctx.handle.blade;
 	const aim = ctx.to().clone().sub(f.pivot).normalize();
 	const len = f.reach * .75;
+	const body = ctx.handle.body;
 	const pose = (x) => {
-		blade.base.copy(f.pivot).addScaledVector(aim, x);
-		blade.tip.copy(f.pivot).addScaledVector(aim, x + len);
+		body.offset.copy(f.fwd).multiplyScalar(Math.max(x, 0) * .45);
+		body.lean = x < 0 ? x * .4 : Math.min(x / Math.max(f.dist, 1), 1) * .3;
+		blade.base.copy(f.pivot).add(body.offset).addScaledVector(aim, x);
+		blade.tip.copy(f.pivot).add(body.offset).addScaledVector(aim, x + len);
 	};
 	ctx.handle.emit("cast");
 	ctx.part("swing");
@@ -6656,7 +6931,7 @@ thrust.defaults = {
 	power: 1.3
 };
 function smash(ctx, p) {
-	const f = frame$1(ctx, p.reach);
+	const f = frame$2(ctx, p.reach);
 	ctx.handle.emit("cast");
 	ctx.after(p.windup, () => ctx.handle.emit("release"));
 	const a1 = -40;
@@ -6670,7 +6945,7 @@ function smash(ctx, p) {
 		ease: ease.inQuad,
 		onHit: () => {}
 	});
-	const tip = f.pivot.clone().addScaledVector(f.fwd, f.reach * Math.cos(a1 * DEG)).addScaledVector(UP$4, f.reach * Math.sin(a1 * DEG));
+	const tip = f.pivot.clone().addScaledVector(f.fwd, f.reach * Math.cos(a1 * DEG)).addScaledVector(UP$5, f.reach * Math.sin(a1 * DEG));
 	const g = ctx.ground(tip);
 	ctx.after(end, () => {
 		ctx.part("hit");
@@ -6692,7 +6967,7 @@ function smash(ctx, p) {
 				ctx.burst(q.clone().setY(q.y + .1), {
 					count: 18,
 					speed: 4,
-					dir: UP$4,
+					dir: UP$5,
 					spread: .5,
 					scale: .6
 				});
@@ -6712,10 +6987,10 @@ smash.defaults = {
 	fissure: 5
 };
 function iaido(ctx, p) {
-	const f = frame$1(ctx, p.reach);
+	const f = frame$2(ctx, p.reach);
 	const blade = ctx.handle.blade;
 	const roll = 8 * DEG;
-	const e2 = f.right.clone().multiplyScalar(Math.cos(roll)).addScaledVector(UP$4, Math.sin(roll));
+	const e2 = f.right.clone().multiplyScalar(Math.cos(roll)).addScaledVector(UP$5, Math.sin(roll));
 	const sheath = 150 * DEG;
 	const d = f.fwd.clone().multiplyScalar(Math.cos(sheath)).addScaledVector(e2, Math.sin(sheath));
 	blade.base.copy(f.pivot).addScaledVector(d, f.reach * .28);
@@ -6769,7 +7044,9 @@ function iaido(ctx, p) {
 			const ang = screenAngle(ctx, ctx.to(), t);
 			ctx.crescent(ctx.to(), 3 * ctx.scale, ang, {
 				hold: p.delay + .2,
-				bend: .15
+				bend: .15,
+				from: f.pivot,
+				tangent: t
 			});
 			ctx.hit(ctx.to(), .4);
 		}
@@ -6780,7 +7057,8 @@ function iaido(ctx, p) {
 		const t = ctx.to();
 		for (let i = 0; i < 3; i++) ctx.after(i * .03, () => ctx.crescent(t.clone().add(randomDir().multiplyScalar(.25)), 2.2 * ctx.scale, Math.random() * Math.PI, {
 			hold: .25,
-			bend: .2
+			bend: .2,
+			from: f.pivot
 		}));
 		ctx.impact(t, {
 			power: p.power,
@@ -6796,6 +7074,1271 @@ iaido.defaults = {
 	delay: .4,
 	reach: 0,
 	power: 2
+};
+var DOWN$1 = new THREE.Vector3(0, -1, 0);
+function rising(ctx, p) {
+	const f = frame$2(ctx, p.reach);
+	ctx.handle.emit("cast");
+	ctx.after(p.windup, () => ctx.handle.emit("release"));
+	const lift = f.fwd.clone().multiplyScalar(.3).add(UP$5).normalize();
+	swing(ctx, f, {
+		roll: p.roll,
+		mirror: p.mirror >= .5,
+		a0: -p.sweep / 2,
+		a1: p.sweep / 2,
+		windup: p.windup,
+		dur: p.dur,
+		lag: p.lag,
+		sparks: p.sparks,
+		lean: [.3, -.2],
+		push: lift,
+		onHit: (_i, t) => {
+			strike$1(ctx, f, t, p.power, {
+				push: lift,
+				extra: p.power >= 1.5
+			});
+			const at = ctx.to();
+			ctx.emitShape("spark", 40, {
+				type: "sphere",
+				at,
+				r: .2
+			}, {
+				v: () => UP$5.clone().multiplyScalar(5 + Math.random() * 5).add(randomDir().multiplyScalar(1.5)),
+				life: [.2, .45],
+				size: [.01, .02],
+				gravity: 6,
+				stretch: .05,
+				colors: ctx.cols("core", "main"),
+				bright: 2.6 * ctx.B,
+				fadeIn: 0
+			});
+			ctx.lines(at.clone().add(new THREE.Vector3(0, .6, 0)), {
+				size: 1.6 * ctx.scale,
+				parallel: Math.PI / 2,
+				dur: .25,
+				count: 14,
+				width: .25,
+				bright: 1.1
+			});
+		}
+	});
+}
+rising.defaults = {
+	windup: .14,
+	dur: .17,
+	sweep: 190,
+	roll: 65,
+	mirror: 0,
+	reach: 0,
+	lag: .6,
+	power: 1.3,
+	sparks: 1
+};
+function cleave(ctx, p) {
+	const f = frame$2(ctx, p.reach);
+	ctx.handle.emit("cast");
+	ctx.after(p.windup, () => ctx.handle.emit("release"));
+	const end = swing(ctx, f, {
+		roll: 90,
+		a0: 165,
+		a1: -25,
+		windup: p.windup,
+		dur: p.dur,
+		lag: .5,
+		ease: ease.inQuad,
+		step: .5,
+		lean: [-.3, .45],
+		sparks: 1.3,
+		onHit: () => {}
+	});
+	ctx.after(end - p.dur * .15, () => {
+		ctx.part("hit");
+		const t = ctx.to();
+		ctx.crescent(t, 1.6 * ctx.scale, Math.PI / 2, {
+			hold: p.split + .25,
+			bend: .04,
+			from: f.pivot
+		});
+		ctx.hit(t, .6 * p.power, "first", DOWN$1);
+		ctx.burst(t, {
+			count: 40,
+			dir: f.fwd,
+			scale: .6
+		});
+		const g = ctx.ground(t.clone().addScaledVector(f.fwd, -.4));
+		ctx.decal(g, 1.2, 4);
+		ctx.dust(g, .9);
+		ctx.after(p.split, () => {
+			ctx.crescent(t, 1.9 * ctx.scale, Math.PI / 2, {
+				hold: .22,
+				bend: 0,
+				from: f.pivot
+			});
+			ctx.impact(t, {
+				power: p.power,
+				dir: f.fwd,
+				push: DOWN$1,
+				ringNormal: "camera",
+				scale: 1,
+				extra: true,
+				role: "final"
+			});
+		});
+	});
+}
+cleave.defaults = {
+	windup: .3,
+	dur: .12,
+	split: .18,
+	reach: 0,
+	power: 1.8
+};
+function combo(ctx, p) {
+	const f = frame$2(ctx, p.reach);
+	ctx.handle.emit("cast");
+	ctx.after(p.windup, () => ctx.handle.emit("release"));
+	const light = (i) => (_n, t) => strike$1(ctx, f, t, p.power * .55, {
+		scale: .6,
+		mark: 1.5,
+		role: i === 0 ? "first" : "link"
+	});
+	const one = swing(ctx, f, {
+		roll: 10,
+		a0: 85,
+		a1: -85,
+		windup: p.windup,
+		dur: p.dur,
+		lag: .5,
+		step: .2,
+		onHit: light(0)
+	});
+	const two = swing(ctx, f, {
+		roll: 25,
+		mirror: true,
+		a0: -85,
+		a1: 85,
+		windup: .04,
+		dur: p.dur,
+		lag: .5,
+		delay: one + p.gap,
+		step: .2,
+		glint: false,
+		lean: [.2, -.05],
+		onHit: light(1)
+	});
+	swing(ctx, f, {
+		roll: 80,
+		a0: 160,
+		a1: -35,
+		windup: .12,
+		dur: p.dur * .9,
+		lag: .55,
+		delay: two + p.gap,
+		step: .4,
+		glint: false,
+		ease: ease.inQuad,
+		lean: [-.3, .45],
+		sparks: 1.4,
+		onHit: (_n, t) => strike$1(ctx, f, t, p.power, {
+			extra: true,
+			push: f.fwd.clone().add(DOWN$1).normalize(),
+			role: "final"
+		})
+	});
+}
+combo.defaults = {
+	windup: .1,
+	dur: .13,
+	gap: .06,
+	reach: 0,
+	power: 1.6
+};
+function flyingArc(ctx, o) {
+	const prim = ctx.fx.prims.acquire("arc");
+	const half = o.span / 2 * DEG;
+	arcGeometry(prim.mesh.geometry, o.pivot, o.e1, o.e2, half, -half, o.radius * .72, o.radius);
+	prim.u.core.value.copy(ctx.pal.core);
+	prim.u.main.value.copy(ctx.pal.main);
+	prim.u.accent.value.copy(ctx.pal.accent);
+	prim.u.bright.value = 3.4 * ctx.B;
+	prim.u.seed.value = Math.random() * 50;
+	prim.u.lag.value = 1.05;
+	prim.u.head.value = 1;
+	prim.mesh.position.set(0, 0, 0);
+	const travel = o.dist / o.speed;
+	const total = travel + .25;
+	let arrived = false;
+	const tipAt = (a) => o.pivot.clone().add(prim.mesh.position).addScaledVector(o.e1, Math.cos(a) * o.radius).addScaledVector(o.e2, Math.sin(a) * o.radius);
+	let prev = tipAt(0);
+	ctx.live(prim, total, (_k, age) => {
+		prim.u.time.value = age;
+		const d = Math.min(age * o.speed, o.dist + 1.5);
+		prim.mesh.position.copy(o.dir).multiplyScalar(d);
+		prim.u.fade.value = age < travel ? 1 : Math.max(1 - (age - travel) / .25, 0);
+		const head = tipAt(0);
+		ctx.handle.head.copy(head);
+		const dt = 1 / 60;
+		ctx.emit("spark", 3, {
+			p: () => tipAt((Math.random() - .5) * 2 * half),
+			v: () => o.dir.clone().multiplyScalar(-2).add(randomDir()),
+			life: [.1, .25],
+			size: [.01, .018],
+			stretch: .03,
+			colors: ctx.cols("core", "main"),
+			bright: 2.4 * ctx.B,
+			fadeIn: 0
+		});
+		ctx.trail(head, prev, o.dir.clone().multiplyScalar(o.speed), dt, .7);
+		prev = head;
+		if (!arrived && age >= travel) {
+			arrived = true;
+			o.arrive();
+		}
+	});
+}
+function wave(ctx, p) {
+	const f = frame$2(ctx, 1.6);
+	ctx.handle.emit("cast");
+	ctx.after(p.windup, () => ctx.handle.emit("release"));
+	const end = swing(ctx, f, {
+		roll: p.roll,
+		a0: 90,
+		a1: -90,
+		windup: p.windup,
+		dur: p.dur,
+		lag: .5,
+		step: .3,
+		onHit: () => {}
+	});
+	ctx.after(end - p.dur * .4, () => {
+		ctx.part("fly");
+		const roll = p.roll * DEG;
+		const e2 = f.right.clone().multiplyScalar(Math.cos(roll)).addScaledVector(UP$5, Math.sin(roll));
+		const pivot = f.pivot.clone().add(ctx.handle.body.offset).addScaledVector(f.fwd, -.4 * p.size);
+		const target = ctx.to();
+		const dir = target.clone().sub(pivot).setY(0).normalize();
+		const dist = Math.max(target.clone().sub(pivot).setY(0).length() - 1.2 * p.size, .3);
+		flyingArc(ctx, {
+			pivot,
+			e1: dir,
+			e2,
+			radius: 1.5 * p.size * ctx.scale,
+			span: 120,
+			dir,
+			dist,
+			speed: p.speed,
+			arrive: () => {
+				ctx.part("hit");
+				strike$1(ctx, f, e2.clone().negate(), p.power, {
+					mark: 0,
+					extra: p.power >= 1.5
+				});
+			}
+		});
+	});
+}
+wave.defaults = {
+	windup: .1,
+	dur: .12,
+	roll: 20,
+	speed: 14,
+	size: 1,
+	power: 1.3
+};
+function dash(ctx, p) {
+	const f = frame$2(ctx, 1.4);
+	const blade = ctx.handle.blade;
+	const body = ctx.handle.body;
+	const target = ctx.to();
+	const travel = f.dist + p.over;
+	const low = f.fwd.clone().multiplyScalar(-.5).add(f.right.clone().multiplyScalar(.6)).add(DOWN$1.clone().multiplyScalar(.35)).normalize();
+	const hold = () => {
+		blade.base.copy(f.pivot).add(body.offset).addScaledVector(low, .35);
+		blade.tip.copy(f.pivot).add(body.offset).addScaledVector(low, 1.4);
+	};
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	blade.active = true;
+	ctx.during(0, p.charge, (k) => {
+		body.lean = .35 * ease.inOutQuad(k);
+		body.offset.copy(f.fwd).multiplyScalar(-.15 * k);
+		hold();
+	});
+	ctx.after(p.charge * .7, () => ctx.star(f.pivot.clone().addScaledVector(low, 1.4), .6 * ctx.scale, .18, 2.5));
+	ctx.after(p.charge, () => {
+		ctx.handle.emit("release");
+		ctx.part("swing");
+		const start = ctx.from().add(body.offset).setY(ctx.floor + .05);
+		ctx.dust(start, .8);
+		let hit = false;
+		const prev = blade.tip.clone();
+		ctx.during(0, p.dash, (k, dt) => {
+			body.offset.copy(f.fwd).multiplyScalar(-.15 + (travel + .15) * ease.outQuint(k));
+			body.lean = .45;
+			hold();
+			const v = dt > 0 ? blade.tip.clone().sub(prev).divideScalar(dt) : new THREE.Vector3();
+			ctx.trail(blade.tip, prev, v, dt * .6, .6);
+			ctx.emit("spark", poisson(400 * dt), {
+				p: () => blade.base.clone().lerp(blade.tip, Math.random()),
+				v: () => f.fwd.clone().multiplyScalar(-3).add(randomDir()),
+				life: [.1, .25],
+				size: [.01, .018],
+				stretch: .04,
+				colors: ctx.cols("core", "main"),
+				bright: 2.4 * ctx.B,
+				fadeIn: 0
+			});
+			prev.copy(blade.tip);
+			if (!hit && body.offset.length() >= f.dist - .3) {
+				hit = true;
+				ctx.part("hit");
+				ctx.crescent(target, 2 * ctx.scale, screenAngle(ctx, target, f.fwd), {
+					hold: p.delay + .2,
+					bend: .05,
+					from: f.pivot
+				});
+				ctx.hit(target, .5, "first");
+				ctx.part("swing");
+			}
+		}, () => {
+			const end = ctx.from().add(body.offset).setY(ctx.floor + .05);
+			ctx.dust(end, 1);
+			ctx.lines(start.clone().lerp(end, .5).setY(target.y), {
+				size: travel * .5,
+				parallel: screenAngle(ctx, target, f.fwd),
+				dur: .25,
+				count: 20,
+				width: .35,
+				bright: 1.2
+			});
+			ctx.after(p.delay, () => {
+				ctx.part("hit");
+				ctx.screenFlash(.3);
+				ctx.impact(target, {
+					power: p.power,
+					dir: f.fwd,
+					ringNormal: "camera",
+					scale: 1.1,
+					extra: true,
+					role: "final"
+				});
+				blade.active = false;
+				const held = body.offset.clone();
+				ctx.during(.15, .3, (k) => {
+					body.offset.copy(held).multiplyScalar(1 - ease.inOutQuad(k));
+					body.lean = .45 * (1 - k);
+				});
+			});
+		});
+	});
+}
+dash.defaults = {
+	charge: .18,
+	dash: .14,
+	over: 1.4,
+	delay: .25,
+	power: 1.7
+};
+function flurry(ctx, p) {
+	const f = frame$2(ctx, p.reach);
+	const n = Math.max(3, Math.round(p.count));
+	ctx.handle.emit("cast");
+	ctx.after(p.windup, () => ctx.handle.emit("release"));
+	let t = 0;
+	for (let i = 0; i < n; i++) {
+		const roll = 20 + Math.random() * 70;
+		const mirror = Math.random() < .5;
+		const up = Math.random() < .3;
+		t = swing(ctx, f, {
+			roll,
+			mirror,
+			a0: up ? -70 : 70,
+			a1: up ? 70 : -70,
+			windup: i === 0 ? p.windup : .01,
+			dur: p.dur,
+			lag: .45,
+			delay: t + (i === 0 ? 0 : p.gap),
+			step: .15,
+			glint: i === 0,
+			sparks: .7,
+			onHit: (_n, tg) => {
+				const at = ctx.to().add(randomDir().multiplyScalar(.25));
+				ctx.crescent(at, (1.4 + Math.random() * .6) * ctx.scale, screenAngle(ctx, at, tg), {
+					hold: .2,
+					bend: .25,
+					from: f.pivot,
+					tangent: tg
+				});
+				ctx.burst(at, {
+					count: 14,
+					dir: f.fwd,
+					scale: .4
+				});
+				ctx.hit(at, .35, i === 0 ? "first" : "tick");
+			}
+		});
+	}
+	swing(ctx, f, {
+		roll: 85,
+		a0: 165,
+		a1: -30,
+		windup: .14,
+		dur: p.dur * 2,
+		lag: .55,
+		delay: t + .05,
+		step: .45,
+		glint: true,
+		ease: ease.inQuad,
+		lean: [-.3, .45],
+		sparks: 1.4,
+		onHit: (_n, tg) => strike$1(ctx, f, tg, p.power, {
+			extra: true,
+			role: "final",
+			push: f.fwd.clone().add(DOWN$1).normalize()
+		})
+	});
+}
+flurry.defaults = {
+	windup: .12,
+	count: 8,
+	dur: .06,
+	gap: .015,
+	reach: 0,
+	power: 1.6
+};
+//#endregion
+//#region src/runtime/recipes/blunt.ts
+var UP$4 = new THREE.Vector3(0, 1, 0);
+var DOWN = new THREE.Vector3(0, -1, 0);
+function frame$1(ctx) {
+	const from = ctx.from();
+	const to = ctx.to();
+	const aim = to.clone().sub(from).setY(0);
+	if (aim.lengthSq() < 1e-6) aim.set(1, 0, 0);
+	aim.normalize();
+	return {
+		from,
+		to,
+		aim,
+		side: aim.clone().cross(UP$4).normalize(),
+		dist: from.clone().setY(0).distanceTo(to.clone().setY(0))
+	};
+}
+function limb(ctx, kind, o) {
+	const head = ctx.handle.head;
+	const body = ctx.handle.body;
+	const e = o.ease ?? ease.outExpo;
+	const s = (o.size ?? 1) * ctx.scale;
+	ctx.after(o.delay, () => {
+		const id = claim(ctx.handle, "limb");
+		const mine = () => owns(ctx.handle, "limb", id);
+		body.limb = kind;
+		const prev = o.path(0);
+		head.copy(prev);
+		ctx.during(0, o.dur, (k, dt) => {
+			if (!mine()) return;
+			head.copy(o.path(e(k)));
+			const vel = dt > 0 ? head.clone().sub(prev).divideScalar(dt) : new THREE.Vector3();
+			ctx.emit("glow", 1, {
+				p: head.clone(),
+				speed: 0,
+				life: .09,
+				size: .32 * s,
+				colors: ctx.cols("core", "main"),
+				bright: 1.2 * ctx.B * ctx.glare,
+				fadeIn: 0
+			});
+			ctx.emit("spark", poisson(220 * dt), {
+				p: head.clone(),
+				jitter: .06 * s,
+				v: () => vel.clone().multiplyScalar(-.08).add(randomDir().multiplyScalar(1.2)),
+				life: [.08, .18],
+				size: [.01, .018],
+				stretch: .04,
+				colors: ctx.cols("core", "main"),
+				bright: 2.4 * ctx.B,
+				fadeIn: 0
+			});
+			ctx.trail(head, prev, vel, dt * .5, .55 * s);
+			prev.copy(head);
+		}, () => {
+			const vel = o.path(1).sub(o.path(.9)).multiplyScalar(10 / Math.max(o.dur, .001));
+			o.arrive?.(mine() ? head.clone() : o.path(1), vel);
+			ctx.after(o.after ?? .12, () => {
+				if (mine()) body.limb = null;
+			});
+		});
+	});
+}
+function settle(ctx, delay, dur = .35) {
+	const body = ctx.handle.body;
+	ctx.after(delay, () => {
+		const off = body.offset.clone();
+		const lean = body.lean;
+		const turn = body.turn;
+		ctx.during(0, dur, (k) => {
+			const q = ease.inOutQuad(k);
+			body.offset.copy(off).multiplyScalar(1 - q);
+			body.lean = lean * (1 - q);
+			body.turn = turn * (1 - q);
+		});
+	});
+}
+function pose(ctx, delay, dur, to, e = ease.inOutQuad) {
+	const body = ctx.handle.body;
+	ctx.after(delay, () => {
+		const lean = body.lean;
+		const turn = body.turn;
+		const off = body.offset.clone();
+		ctx.during(0, dur, (k) => {
+			const q = e(k);
+			if (to.lean !== void 0) body.lean = lean + (to.lean - lean) * q;
+			if (to.turn !== void 0) body.turn = turn + (to.turn - turn) * q;
+			if (to.offset) body.offset.copy(off).lerp(to.offset, q);
+		});
+	});
+}
+function cone(ctx, at, axis, size, s) {
+	ctx.lathe(at, {
+		profile: "cone",
+		axis,
+		radius: .18 * size,
+		top: size * 1.1,
+		height: 2.6 * size,
+		flow: -6,
+		tiles: [7, 1.5],
+		streak: 1,
+		rim: .7,
+		fadeLo: .05,
+		fadeHi: .5,
+		dur: .32,
+		bright: 1.3,
+		grow: (k) => [1, .3 + .7 * ease.outExpo(clamp01(k * 3))],
+		erode: (k) => ease.inQuad(span(k, .3, 1)),
+		edge: .1
+	});
+	for (let j = 1; j <= 2; j++) ctx.band(at.clone().addScaledVector(axis, .6 * j * size), {
+		radius: (.6 + .4 * j) * size * s,
+		inner: .82,
+		normal: axis,
+		hard: .6,
+		noise: 1,
+		dur: .28,
+		delay: .03 * j
+	});
+}
+function knuckle(f, sign) {
+	return f.from.clone().addScaledVector(f.aim, -.1).addScaledVector(f.side, .26 * sign).add(new THREE.Vector3(0, .05, 0));
+}
+function ghost(ctx, from, to, delay, dur, s) {
+	ctx.after(delay, () => {
+		const prev = from.clone();
+		ctx.during(0, dur, (k, dt) => {
+			const head = from.clone().lerp(to, ease.outExpo(k));
+			const vel = dt > 0 ? head.clone().sub(prev).divideScalar(dt) : new THREE.Vector3();
+			ctx.emit("glow", 1, {
+				p: head,
+				speed: 0,
+				life: .07,
+				size: .26 * s,
+				colors: ctx.cols("core", "main"),
+				bright: 1.1 * ctx.B * ctx.glare,
+				fadeIn: 0
+			});
+			ctx.trail(head, prev, vel, dt * .3, .4 * s);
+			prev.copy(head);
+		}, () => {
+			ctx.glow(to, .25 * s, .07, 1);
+			ctx.emit("spark", 5, {
+				p: to,
+				v: () => randomDir().multiplyScalar(2.5),
+				life: [.08, .18],
+				size: [.01, .016],
+				stretch: .04,
+				colors: ctx.cols("core", "main"),
+				bright: 2.2 * ctx.B,
+				fadeIn: 0
+			});
+		});
+	});
+}
+function rush(ctx, p) {
+	const f = frame$1(ctx);
+	const s = ctx.scale * p.size;
+	const n = Math.max(3, Math.round(p.count));
+	const body = ctx.handle.body;
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	pose(ctx, 0, p.windup, {
+		lean: -.15,
+		offset: f.aim.clone().multiplyScalar(-.1)
+	});
+	ctx.after(p.windup, () => ctx.handle.emit("release"));
+	const reach = f.to.clone().addScaledVector(f.aim, -.35);
+	const back = f.to.clone().addScaledVector(f.aim, .25);
+	const spot = (w) => reach.clone().addScaledVector(f.side, (Math.random() - .5) * .8 * s * w).add(new THREE.Vector3(0, (Math.random() - .4) * 1.1 * s * w, 0));
+	const lunge = f.aim.clone().multiplyScalar(.25);
+	ctx.during(p.windup, n * p.gap, (k, dt) => {
+		ctx.emit("spark", poisson((60 + 140 * k) * dt), {
+			p: back,
+			jitter: .25 * s,
+			v: () => f.aim.clone().multiplyScalar(5 + Math.random() * 8).add(randomDir().multiplyScalar(2.5)),
+			life: [.12, .3],
+			size: [.01, .02],
+			gravity: 5,
+			stretch: .05,
+			colors: ctx.cols("core", "main"),
+			bright: 2.4 * ctx.B,
+			fadeIn: 0
+		});
+		if (Math.random() < dt * 25) ctx.glow(reach, (.3 + .45 * k) * s, .08, .6 + k);
+	});
+	for (let i = 0; i < n; i++) {
+		const k = i / Math.max(n - 1, 1);
+		const sign = i % 2 ? -1 : 1;
+		const t0 = p.windup + i * p.gap;
+		const at = spot(1);
+		const start = knuckle(f, sign).add(new THREE.Vector3(0, (Math.random() - .5) * .2, 0));
+		ctx.after(t0, () => {
+			ctx.part("swing");
+			body.lean = .2 + Math.random() * .12;
+			body.turn = (.2 + Math.random() * .15) * sign;
+			body.offset.copy(lunge).multiplyScalar(.85 + Math.random() * .3);
+		});
+		for (let g = 0; g < 2; g++) ghost(ctx, knuckle(f, g ? -sign : sign).add(lunge).add(new THREE.Vector3(0, (Math.random() - .5) * .3, 0)), spot(1.3), t0 + Math.random() * p.gap, p.gap * .8, s);
+		limb(ctx, "fist", {
+			delay: t0,
+			dur: p.gap * .7,
+			path: (q) => start.clone().add(body.offset).lerp(at, q),
+			after: p.gap * .3,
+			arrive: (hit) => {
+				ctx.part("hit");
+				const big = i % 3 === 2;
+				ctx.hitmark(hit, {
+					size: (.18 + .1 * Math.random() + .12 * k + (big ? .12 : 0)) * s,
+					spikes: 8 + Math.floor(Math.random() * 5),
+					dur: .08,
+					angle: Math.random() * Math.PI
+				});
+				ctx.burst(hit, {
+					count: 8 + 10 * k,
+					dir: f.aim,
+					speed: 8,
+					spread: .45,
+					scale: .35
+				});
+				ctx.glow(hit, (.3 + .2 * k) * s, .08, 1.2);
+				ctx.band(hit.clone().addScaledVector(f.aim, .2), {
+					radius: (.25 + .2 * k + (big ? .15 : 0)) * s,
+					inner: .78,
+					normal: f.aim,
+					hard: .7,
+					noise: 1,
+					dur: .14
+				});
+				if (big) ctx.wave(hit, .6 + .5 * k, .2, .5);
+				ctx.hit(hit, .3, i === 0 ? "first" : "tick", f.aim);
+			}
+		});
+	}
+	const tEnd = p.windup + n * p.gap + .05;
+	pose(ctx, tEnd, .1, {
+		lean: -.1,
+		turn: -.4,
+		offset: f.aim.clone().multiplyScalar(.1)
+	});
+	const final = knuckle(f, 1);
+	limb(ctx, "fist", {
+		delay: tEnd + .1,
+		dur: .07,
+		path: (q) => final.clone().add(body.offset).lerp(reach, q),
+		arrive: (at) => {
+			ctx.part("hit");
+			body.lean = .4;
+			body.turn = .3;
+			body.offset.copy(f.aim).multiplyScalar(.4);
+			ctx.lines(at, {
+				size: 1.6 * s,
+				parallel: ctx.screenAngle(at, f.aim),
+				dur: .22,
+				count: 18,
+				width: .3,
+				bright: 1.2
+			});
+			ctx.impact(at, {
+				power: p.power,
+				dir: f.aim,
+				ringNormal: f.aim,
+				scale: .9 * p.size,
+				extra: p.power >= 1.5,
+				role: "final"
+			});
+			cone(ctx, at, f.aim, .9 * p.size, s);
+		}
+	});
+	settle(ctx, tEnd + .4);
+}
+rush.defaults = {
+	windup: .15,
+	count: 10,
+	gap: .065,
+	size: 1,
+	power: 1.7
+};
+function uppercut(ctx, p) {
+	const f = frame$1(ctx);
+	const s = ctx.scale * p.size;
+	const body = ctx.handle.body;
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	pose(ctx, 0, p.windup, {
+		lean: .3,
+		turn: .35,
+		offset: new THREE.Vector3(0, -.25, 0).addScaledVector(f.aim, .15)
+	});
+	const low = f.from.clone().addScaledVector(f.aim, .3).addScaledVector(f.side, .2).add(new THREE.Vector3(0, -.75, 0));
+	ctx.during(0, p.windup, (k, dt) => {
+		if (Math.random() < dt * 25) ctx.glow(low.clone().add(body.offset), (.15 + .25 * k) * s, .08, 1 + k);
+	});
+	const hitAt = f.to.clone().addScaledVector(f.aim, -.3);
+	const top = hitAt.clone().add(new THREE.Vector3(0, .9 * s, 0));
+	ctx.after(p.windup, () => {
+		ctx.handle.emit("release");
+		ctx.part("swing");
+	});
+	pose(ctx, p.windup, p.rise, {
+		lean: -.2,
+		turn: -.2,
+		offset: new THREE.Vector3(0, .25, 0).addScaledVector(f.aim, .45)
+	}, ease.outQuad);
+	const curve = (k) => {
+		const a = low.clone().add(new THREE.Vector3(0, .25, 0));
+		const b = hitAt.clone().add(new THREE.Vector3(0, -.2, 0));
+		return k < .6 ? a.lerp(b, k / .6) : b.lerp(top, (k - .6) / .4);
+	};
+	let landed = false;
+	limb(ctx, "fist", {
+		delay: p.windup,
+		dur: p.rise,
+		ease: (t) => t,
+		path: (k) => {
+			if (!landed && k >= .6) {
+				landed = true;
+				ctx.part("hit");
+				ctx.impact(hitAt, {
+					power: p.power,
+					dir: UP$4,
+					push: UP$4,
+					ringNormal: UP$4,
+					scale: .85 * p.size,
+					extra: p.power >= 1.5,
+					role: "final"
+				});
+				ctx.lines(hitAt.clone().add(new THREE.Vector3(0, .8, 0)), {
+					size: 1.8 * s,
+					parallel: Math.PI / 2,
+					dur: .3,
+					count: 18,
+					width: .3,
+					bright: 1.2
+				});
+				cone(ctx, hitAt, UP$4, .8 * p.size, s);
+				ctx.emitShape("spark", 50, {
+					type: "sphere",
+					at: hitAt,
+					r: .25 * s
+				}, {
+					v: () => UP$4.clone().multiplyScalar(6 + Math.random() * 6).add(randomDir().multiplyScalar(1.5)),
+					life: [.25, .5],
+					size: [.01, .02],
+					gravity: 8,
+					stretch: .05,
+					colors: ctx.cols("core", "main"),
+					bright: 2.6 * ctx.B,
+					fadeIn: 0
+				});
+			}
+			return curve(k);
+		}
+	});
+	settle(ctx, p.windup + p.rise + .25, .4);
+}
+uppercut.defaults = {
+	windup: .2,
+	rise: .14,
+	size: 1,
+	power: 1.7
+};
+function kick(ctx, p) {
+	const f = frame$1(ctx);
+	const s = ctx.scale * p.size;
+	const body = ctx.handle.body;
+	const hip = ctx.ground(f.from).add(new THREE.Vector3(0, p.height, 0));
+	const reach = Math.min(Math.max(f.dist * .75, 1.1), 1.7);
+	const e1 = f.aim;
+	const e2 = f.side;
+	const a0 = 2.6;
+	const a1 = -.9;
+	const at = (a) => hip.clone().add(body.offset).addScaledVector(e1, Math.cos(a) * reach).addScaledVector(e2, Math.sin(a) * reach);
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	pose(ctx, 0, p.windup, {
+		lean: -.2,
+		turn: .9,
+		offset: f.aim.clone().multiplyScalar(-.1)
+	});
+	ctx.after(p.windup, () => {
+		ctx.handle.emit("release");
+		ctx.part("swing");
+		ctx.arc({
+			pivot: hip.clone().add(body.offset),
+			e1,
+			e2,
+			a0,
+			a1,
+			r0: reach * .55,
+			r1: reach * 1.05,
+			dur: p.dur,
+			ease: ease.slash,
+			lag: .55,
+			hold: .15
+		});
+	});
+	pose(ctx, p.windup, p.dur, {
+		lean: -.35,
+		turn: -1.1,
+		offset: f.aim.clone().multiplyScalar(.2)
+	}, ease.slash);
+	let landed = false;
+	limb(ctx, "foot", {
+		delay: p.windup,
+		dur: p.dur,
+		ease: ease.slash,
+		size: p.size,
+		path: (k) => {
+			const a = a0 + -3.5 * k;
+			if (!landed && a <= .05) {
+				landed = true;
+				ctx.part("hit");
+				const t = f.to.clone().addScaledVector(f.aim, -.25);
+				const push = f.aim.clone().addScaledVector(f.side, -.8).normalize();
+				ctx.impact(t, {
+					power: p.power,
+					dir: push,
+					ringNormal: "camera",
+					scale: .9 * p.size,
+					extra: p.power >= 1.5,
+					role: "final"
+				});
+				ctx.hitmark(t, {
+					size: 1.1 * s,
+					spikes: 10,
+					dur: .18,
+					angle: ctx.screenAngle(t, push)
+				});
+				ctx.lines(t, {
+					size: 1.6 * s,
+					parallel: ctx.screenAngle(t, push),
+					dur: .22,
+					count: 16,
+					width: .3,
+					bright: 1.1
+				});
+				ctx.part("swing");
+			}
+			return at(a);
+		}
+	});
+	settle(ctx, p.windup + p.dur + .15, .4);
+}
+kick.defaults = {
+	windup: .16,
+	dur: .16,
+	height: 1.15,
+	size: 1,
+	power: 1.6
+};
+function heel(ctx, p) {
+	const f = frame$1(ctx);
+	const s = ctx.scale * p.size;
+	const body = ctx.handle.body;
+	const hip = ctx.ground(f.from).add(new THREE.Vector3(0, 1, 0));
+	const reach = Math.min(Math.max(f.dist * .8, 1.2), 1.8);
+	const at = (a) => hip.clone().add(body.offset).addScaledVector(f.aim, Math.cos(a) * reach).addScaledVector(UP$4, Math.sin(a) * reach);
+	const hi = 1.75;
+	const lo = -.15;
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	pose(ctx, 0, p.windup, {
+		lean: -.35,
+		offset: new THREE.Vector3(0, .15, 0).addScaledVector(f.aim, .1)
+	});
+	limb(ctx, "foot", {
+		delay: 0,
+		dur: p.windup,
+		ease: ease.outCubic,
+		size: p.size,
+		after: 0,
+		path: (k) => at(-.6 + 2.35 * k)
+	});
+	ctx.after(p.windup * .7, () => ctx.star(at(hi), .6 * s, .2, 2.5));
+	ctx.after(p.windup, () => {
+		ctx.handle.emit("release");
+		ctx.part("swing");
+		ctx.arc({
+			pivot: hip.clone().add(body.offset),
+			e1: f.aim,
+			e2: UP$4,
+			a0: hi,
+			a1: lo,
+			r0: reach * .55,
+			r1: reach * 1.05,
+			dur: p.dur,
+			ease: ease.inQuad,
+			lag: .5,
+			hold: .15
+		});
+	});
+	pose(ctx, p.windup, p.dur, {
+		lean: .35,
+		offset: f.aim.clone().multiplyScalar(.25)
+	}, ease.inQuad);
+	limb(ctx, "foot", {
+		delay: p.windup + .001,
+		dur: p.dur,
+		ease: ease.inQuad,
+		size: p.size,
+		path: (k) => at(hi + -1.9 * k),
+		arrive: () => {
+			ctx.part("hit");
+			const t = f.to.clone().add(new THREE.Vector3(0, .3, 0)).addScaledVector(f.aim, -.2);
+			const g = ctx.ground(f.to);
+			ctx.screenFlash(.08);
+			ctx.impact(t, {
+				power: p.power,
+				dir: DOWN,
+				push: DOWN,
+				ringNormal: "up",
+				scale: 1 * p.size,
+				extra: true,
+				role: "final"
+			});
+			ctx.lines(t.clone().add(new THREE.Vector3(0, .8, 0)), {
+				size: 1.8 * s,
+				parallel: Math.PI / 2,
+				dur: .25,
+				count: 16,
+				width: .3,
+				bright: 1.1
+			});
+			ctx.decal(g, 1.8 * s, 5);
+			ctx.ring(g, 2.2 * s, {
+				dur: .5,
+				thick: .06
+			});
+			ctx.dust(g, 1.3 * s);
+			ctx.rocks(g, 8, .8 * s, () => randomDir().setY(.6 + Math.random()).multiplyScalar(3 + Math.random() * 2));
+		}
+	});
+	settle(ctx, p.windup + p.dur + .25, .4);
+}
+heel.defaults = {
+	windup: .32,
+	dur: .12,
+	size: 1,
+	power: 1.9
+};
+function palm(ctx, p) {
+	const f = frame$1(ctx);
+	const s = ctx.scale * p.size;
+	const body = ctx.handle.body;
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	pose(ctx, 0, p.windup, {
+		lean: -.1,
+		turn: .4,
+		offset: f.aim.clone().multiplyScalar(-.1).add(new THREE.Vector3(0, -.15, 0))
+	});
+	const start = knuckle(f, 1).add(new THREE.Vector3(0, -.1, 0));
+	const contact = f.to.clone().addScaledVector(f.aim, -.35);
+	ctx.during(0, p.windup, (k, dt) => {
+		if (Math.random() < dt * 30) ctx.glow(start.clone().add(body.offset), (.15 + .35 * k) * s, .08, 1 + 1.5 * k);
+	});
+	ctx.after(p.windup, () => {
+		ctx.handle.emit("release");
+		ctx.part("swing");
+	});
+	pose(ctx, p.windup, .08, {
+		lean: .3,
+		turn: -.3,
+		offset: f.aim.clone().multiplyScalar(.45).add(new THREE.Vector3(0, -.1, 0))
+	}, ease.outExpo);
+	limb(ctx, "fist", {
+		delay: p.windup,
+		dur: .08,
+		after: .3,
+		path: (k) => start.clone().add(body.offset).lerp(contact, k),
+		arrive: (at) => {
+			ctx.part("hit");
+			ctx.glow(at, .7 * s, .15, 1.6);
+			ctx.ring(at, .6 * s, {
+				normal: f.aim,
+				dur: .22,
+				thick: .12
+			});
+			ctx.wave(at, 1.2, .35, .8);
+			ctx.hit(at, .5 * p.power, "first", f.aim);
+			for (let i = 0; i < 4; i++) ctx.band(at.clone().addScaledVector(f.aim, .35 + i * .45), {
+				radius: (.55 + i * .22) * s,
+				inner: .8,
+				normal: f.aim,
+				hard: .7,
+				noise: .6,
+				dur: .3,
+				delay: p.delay * .5 + i * .035
+			});
+			ctx.after(p.delay, () => {
+				const out = f.to.clone().addScaledVector(f.aim, .9 * s);
+				ctx.impact(f.to, {
+					power: p.power,
+					dir: f.aim,
+					ringNormal: f.aim,
+					scale: .8 * p.size,
+					hit: false
+				});
+				ctx.burst(out, {
+					count: 60,
+					speed: 9,
+					dir: f.aim,
+					spread: .35,
+					scale: .8
+				});
+				ctx.flare(out, 1.4 * s, .25);
+				ctx.wave(out, 1.6, .4, 1);
+				ctx.hit(f.to, p.power, "final", f.aim);
+			});
+		}
+	});
+	settle(ctx, p.windup + p.delay + .35, .4);
+}
+palm.defaults = {
+	windup: .18,
+	delay: .1,
+	size: 1,
+	power: 1.8
+};
+function tackle(ctx, p) {
+	const f = frame$1(ctx);
+	const s = ctx.scale * p.size;
+	const body = ctx.handle.body;
+	const run = Math.max(f.dist - .75, .2);
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	pose(ctx, 0, p.charge, {
+		lean: .45,
+		turn: .6,
+		offset: f.aim.clone().multiplyScalar(-.2).add(new THREE.Vector3(0, -.12, 0))
+	});
+	ctx.after(p.charge, () => {
+		ctx.handle.emit("release");
+		ctx.part("swing");
+		const start = ctx.ground(f.from).add(body.offset);
+		ctx.dust(start, .8 * s);
+		let hit = false;
+		ctx.during(0, p.dash, (k, dt) => {
+			body.offset.copy(f.aim).multiplyScalar(-.2 + (run + .2) * ease.inQuad(k));
+			body.lean = .5;
+			body.turn = .6;
+			const at = f.from.clone().add(body.offset);
+			ctx.emit("smoke", poisson(50 * dt), {
+				p: ctx.ground(at).setY(ctx.floor + .05),
+				jitter: .2,
+				v: () => f.aim.clone().multiplyScalar(-1.5).setY(.5),
+				life: [.4, .7],
+				size: [.15 * s, .25 * s],
+				grow: 2,
+				drag: 3,
+				colors: [ctx.pal.smoke ?? new THREE.Color(.3, .28, .25), new THREE.Color(.3, .28, .25)],
+				fadeIn: .03
+			});
+			if (Math.random() < dt * 30) ctx.lines(at, {
+				size: 1.3 * s,
+				parallel: ctx.screenAngle(at, f.aim),
+				dur: .15,
+				count: 12,
+				width: .3,
+				bright: .9
+			});
+			if (!hit && k >= .999) hit = true;
+		}, () => {
+			ctx.part("hit");
+			const at = f.to.clone().addScaledVector(f.aim, -.4);
+			ctx.screenFlash(.08);
+			ctx.impact(at, {
+				power: p.power,
+				dir: f.aim,
+				ringNormal: f.aim,
+				scale: 1 * p.size,
+				extra: p.power >= 1.5,
+				role: "final"
+			});
+			ctx.hitmark(at, {
+				size: 1.3 * s,
+				spikes: 12,
+				dur: .2,
+				angle: ctx.screenAngle(at, f.aim)
+			});
+			for (let j = 1; j <= 3; j++) ctx.band(at.clone().addScaledVector(f.aim, .4 * j), {
+				radius: (.6 + .3 * j) * s,
+				inner: .82,
+				normal: f.aim,
+				hard: .6,
+				noise: 1,
+				dur: .28,
+				delay: .03 * j
+			});
+			const held = body.offset.clone();
+			ctx.during(0, .12, (k) => body.offset.copy(held).addScaledVector(f.aim, -.35 * ease.outCubic(k)));
+			settle(ctx, .25, .4);
+		});
+	});
+}
+tackle.defaults = {
+	charge: .22,
+	dash: .2,
+	size: 1,
+	power: 1.8
+};
+function pound(ctx, p) {
+	const f = frame$1(ctx);
+	const s = ctx.scale * p.size;
+	const body = ctx.handle.body;
+	ctx.handle.emit("cast");
+	ctx.part("cast");
+	pose(ctx, 0, p.windup * .35, {
+		lean: .25,
+		offset: new THREE.Vector3(0, -.2, 0)
+	});
+	pose(ctx, p.windup * .35, p.windup * .65, {
+		lean: -.25,
+		offset: new THREE.Vector3(0, .6, 0).addScaledVector(f.aim, .2)
+	}, ease.outCubic);
+	const raised = () => f.from.clone().add(body.offset).add(new THREE.Vector3(0, .75, 0)).addScaledVector(f.aim, .1);
+	const g = ctx.ground(f.from.clone().addScaledVector(f.aim, .75));
+	limb(ctx, "fist", {
+		delay: p.windup * .35,
+		dur: p.windup * .65,
+		ease: ease.outCubic,
+		after: 0,
+		path: () => raised()
+	});
+	ctx.after(p.windup, () => {
+		ctx.handle.emit("release");
+		ctx.part("swing");
+	});
+	pose(ctx, p.windup, .1, {
+		lean: .38,
+		offset: new THREE.Vector3(0, -.15, 0).addScaledVector(f.aim, .25)
+	}, ease.inQuad);
+	limb(ctx, "fist", {
+		delay: p.windup + .001,
+		dur: .1,
+		ease: ease.inQuad,
+		after: .25,
+		path: (k) => raised().lerp(g.clone().setY(g.y + .1), k),
+		arrive: () => {
+			ctx.part("hit");
+			ctx.screenFlash(.1);
+			ctx.impact(g.clone().setY(g.y + .2), {
+				power: p.power * .6,
+				ringNormal: "up",
+				scale: .9 * p.size,
+				hit: false,
+				extra: true
+			});
+			ctx.decal(g, 2 * s, 5);
+			ctx.rocks(g, 10, .9 * s, () => randomDir().setY(.7 + Math.random()).multiplyScalar(3 + Math.random() * 3));
+			const reach = g.clone().setY(0).distanceTo(f.to.clone().setY(0));
+			const out = reach + 1.5;
+			const dur = out / p.speed;
+			ctx.band(g.clone().setY(g.y + .02), {
+				radius: out * s,
+				inner: .9,
+				normal: "up",
+				hard: .5,
+				noise: 1,
+				dur,
+				grow: (k) => .05 + .95 * k,
+				bright: 1.6
+			});
+			ctx.band(g.clone().setY(g.y + .02), {
+				radius: out * .85 * s,
+				inner: .8,
+				normal: "up",
+				hard: .3,
+				noise: 1,
+				dur,
+				delay: .04,
+				grow: (k) => .05 + .95 * k,
+				colors: [
+					"main",
+					"accent",
+					"accent"
+				],
+				bright: 1
+			});
+			ctx.wave(g, out * .8, dur, 1.2);
+			ctx.during(0, dur, (k, dt) => {
+				const r = out * k;
+				ctx.emitShape("smoke", poisson(80 * dt), {
+					type: "circle",
+					at: g.clone().setY(g.y + .05),
+					r
+				}, {
+					outward: [1, 2],
+					v: () => new THREE.Vector3(0, .6, 0),
+					life: [.4, .7],
+					size: [.15 * s, .28 * s],
+					grow: 2,
+					drag: 3,
+					colors: [ctx.pal.smoke ?? new THREE.Color(.3, .28, .25), new THREE.Color(.3, .28, .25)],
+					fadeIn: .03
+				});
+				ctx.emitShape("spark", poisson(160 * dt), {
+					type: "circle",
+					at: g.clone().setY(g.y + .05),
+					r
+				}, {
+					outward: [1, 3],
+					v: () => new THREE.Vector3(0, 2 + Math.random() * 3, 0),
+					life: [.2, .4],
+					size: [.01, .018],
+					gravity: 9,
+					stretch: .04,
+					colors: ctx.cols("core", "main"),
+					bright: 2.4 * ctx.B,
+					fadeIn: 0
+				});
+			});
+			ctx.after(reach / p.speed, () => {
+				ctx.impact(f.to, {
+					power: p.power,
+					dir: UP$4,
+					push: f.aim.clone().add(UP$4).normalize(),
+					ringNormal: "camera",
+					scale: .7 * p.size,
+					role: "final"
+				});
+			});
+		}
+	});
+	settle(ctx, p.windup + .45, .4);
+}
+pound.defaults = {
+	windup: .38,
+	speed: 9,
+	size: 1,
+	power: 1.8
 };
 //#endregion
 //#region src/runtime/recipes/support.ts
@@ -7103,7 +8646,8 @@ function heal(ctx, p) {
 			index: 0,
 			shake: 0,
 			hitStop: 0,
-			role: "final"
+			role: "final",
+			dir: new THREE.Vector3(0, 1, 0)
 		});
 		ctx.emit("glow", 1, {
 			p: chest,
@@ -7730,9 +9274,13 @@ function strike(ctx, p) {
 		return back.lerp(hit, k);
 	};
 	const charge = ctx.hold(4);
+	const body = ctx.handle.body;
+	body.limb = "fist";
 	ctx.during(0, p.windup, (k, dt) => {
 		const f = fistAt(0);
 		ctx.handle.head.copy(f);
+		body.lean = -.15 * k;
+		body.turn = .35 * k;
 		if (Math.random() < dt * 30) ctx.glow(f, (.15 + .3 * ease.inQuad(k)) * s, .08, 1 + 1.5 * k);
 		ctx.emitShape("spark", poisson(60 * dt * k), {
 			type: "sphere",
@@ -7778,6 +9326,9 @@ function strike(ctx, p) {
 			ctx.during(0, travel, (k, dt) => {
 				const f = start.clone().lerp(end, ease.outExpo(k));
 				ctx.handle.head.copy(f);
+				body.lean = .3 * ease.outExpo(k);
+				body.turn = (i % 2 ? .3 : -.3) * ease.outExpo(k);
+				body.offset.copy(aim).multiplyScalar(.3 * ease.outExpo(k));
 				ctx.emit("glow", 1, {
 					p: f,
 					speed: 0,
@@ -7800,6 +9351,12 @@ function strike(ctx, p) {
 				});
 			}, () => {
 				ctx.part("hit");
+				if (last) ctx.during(.2, .35, (k) => {
+					body.lean = .3 * (1 - k);
+					body.turn = (i % 2 ? .3 : -.3) * (1 - k);
+					body.offset.copy(aim).multiplyScalar(.3 * (1 - k));
+					if (k >= 1) body.limb = null;
+				});
 				const at = ctx.to().addScaledVector(aim, -.25);
 				ctx.impact(at, {
 					power: pw,
@@ -10079,21 +11636,59 @@ var RECIPES = {
 	buff,
 	warp,
 	slash,
+	swipe,
+	rising,
+	cleave,
+	combo,
+	wave,
+	dash,
+	flurry,
 	thrust,
 	spin,
 	cross: cross$1,
 	smash,
 	iaido,
-	strike
+	strike,
+	rush,
+	uppercut,
+	kick,
+	heel,
+	palm,
+	tackle,
+	pound
 };
 var MELEE = /* @__PURE__ */ new Set([
 	"slash",
+	"swipe",
+	"rising",
+	"cleave",
+	"combo",
+	"wave",
+	"dash",
+	"flurry",
 	"thrust",
 	"spin",
 	"cross",
 	"smash",
 	"iaido",
-	"strike"
+	"strike",
+	"rush",
+	"uppercut",
+	"kick",
+	"heel",
+	"palm",
+	"tackle",
+	"pound"
+]);
+var BLUNT = /* @__PURE__ */ new Set([
+	"strike",
+	"rush",
+	"uppercut",
+	"kick",
+	"heel",
+	"palm",
+	"tackle",
+	"pound"
 ]);
 var SUPPORT = /* @__PURE__ */ new Set([
 	"heal",
@@ -10927,7 +12522,7 @@ var StatusRun = class {
 		this.handle = handle;
 		this.done = new Promise((r) => this.resolve = r);
 		const element = opts.element ?? recipe.element;
-		this.pal = palette(element, opts.hue ?? 0);
+		this.pal = palette(element, opts.hue ?? 0, opts.color);
 		this.shade = (this.pal.smoke ?? this.pal.accent).clone().lerp(this.pal.accent, .45);
 		this.ctx = new Ctx(fx, handle, {
 			id: `status-${name}`,
@@ -11936,7 +13531,7 @@ var FixtureRun = class {
 		this.at = at;
 		this.done = new Promise((r) => this.resolve = r);
 		const element = opts.element ?? recipe.element;
-		this.pal = palette(element, opts.hue ?? 0);
+		this.pal = palette(element, opts.hue ?? 0, opts.color);
 		this.scale = opts.scale ?? 1;
 		this.prop = opts.prop ?? true;
 		this.lit = opts.light ?? true;
@@ -13385,11 +14980,195 @@ var RANGES = {
 	slash: {
 		windup: [.08, .18],
 		dur: [.14, .24],
-		sweep: [150, 230],
-		roll: [-60, 60],
+		sweep: [150, 220],
+		roll: [30, 80],
+		mirror: [
+			0,
+			1,
+			"int"
+		],
 		lag: [.45, .8],
 		power: [.9, 1.6],
 		sparks: [.6, 1.4],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	swipe: {
+		windup: [.07, .14],
+		dur: [.12, .2],
+		sweep: [150, 220],
+		roll: [30, 80],
+		mirror: [
+			0,
+			1,
+			"int"
+		],
+		lag: [.45, .8],
+		power: [.8, 1.3],
+		sparks: [0, .6]
+	},
+	rising: {
+		windup: [.1, .2],
+		dur: [.14, .22],
+		sweep: [150, 210],
+		roll: [50, 85],
+		mirror: [
+			0,
+			1,
+			"int"
+		],
+		lag: [.45, .8],
+		power: [1.1, 1.6],
+		sparks: [.6, 1.4],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	cleave: {
+		windup: [.22, .4],
+		dur: [.09, .15],
+		split: [.12, .28],
+		power: [1.6, 2.1],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	combo: {
+		windup: [.08, .14],
+		dur: [.1, .16],
+		gap: [.03, .1],
+		power: [1.4, 1.9],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	wave: {
+		windup: [.08, .16],
+		dur: [.1, .15],
+		roll: [-30, 60],
+		speed: [10, 18],
+		size: [.8, 1.3],
+		power: [1.1, 1.6],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	dash: {
+		charge: [.12, .28],
+		dash: [.1, .18],
+		over: [.8, 2],
+		delay: [.18, .35],
+		power: [1.5, 2],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	flurry: {
+		windup: [.08, .16],
+		count: [
+			6,
+			12,
+			"int"
+		],
+		dur: [.045, .075],
+		gap: [.005, .03],
+		power: [1.4, 1.9],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	rush: {
+		windup: [.1, .2],
+		count: [
+			6,
+			14,
+			"int"
+		],
+		gap: [.05, .08],
+		size: [.85, 1.2],
+		power: [1.5, 2],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	uppercut: {
+		windup: [.15, .28],
+		rise: [.1, .18],
+		size: [.85, 1.2],
+		power: [1.5, 2],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	kick: {
+		windup: [.12, .22],
+		dur: [.13, .2],
+		height: [.8, 1.5],
+		size: [.85, 1.2],
+		power: [1.4, 1.9],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	heel: {
+		windup: [.25, .4],
+		dur: [.09, .15],
+		size: [.85, 1.2],
+		power: [1.7, 2.1],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	palm: {
+		windup: [.14, .24],
+		delay: [.06, .16],
+		size: [.85, 1.2],
+		power: [1.6, 2],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	tackle: {
+		charge: [.16, .3],
+		dash: [.15, .26],
+		size: [.85, 1.2],
+		power: [1.6, 2],
+		anime: [
+			0,
+			0,
+			"int"
+		]
+	},
+	pound: {
+		windup: [.3, .46],
+		speed: [7, 12],
+		size: [.85, 1.25],
+		power: [1.6, 2],
 		anime: [
 			0,
 			0,
@@ -14153,6 +15932,12 @@ var FXHandle = class {
 		active: false
 	};
 	head = new THREE.Vector3();
+	body = {
+		offset: new THREE.Vector3(),
+		lean: 0,
+		turn: 0,
+		limb: null
+	};
 	listeners = /* @__PURE__ */ new Map();
 	done;
 	resolve;
@@ -14177,6 +15962,9 @@ var FXHandle = class {
 		}
 		this.playing = false;
 		this.blade.active = false;
+		this.body.offset.set(0, 0, 0);
+		this.body.lean = this.body.turn = 0;
+		this.body.limb = null;
 		try {
 			this.send("end");
 		} finally {
@@ -14427,7 +16215,7 @@ var FXSystem = class {
 		const handle = new FXHandle(def.id, this);
 		this.handles.add(handle);
 		handle.done.then(() => this.handles.delete(handle));
-		const pal = palette(def.element, def.hue ?? 0);
+		const pal = palette(def.element, def.hue ?? 0, def.color);
 		const ctx = new Ctx(this, handle, def, pal, opts);
 		ctx.params = clampParams(def.recipe, {
 			...recipeDefaults(def.recipe),
@@ -14699,7 +16487,8 @@ function effect(recipe, element = "fire", options = {}) {
 	return {
 		...base,
 		id: options.id ?? (options.seed === void 0 ? `${element}-${recipe}` : base.id),
-		hue: options.hue ?? base.hue,
+		hue: options.hue ?? (options.color != null ? 0 : base.hue),
+		...options.color != null ? { color: new Color(options.color).getHex() } : {},
 		params: {
 			...base.params,
 			...options.params
@@ -14708,9 +16497,9 @@ function effect(recipe, element = "fire", options = {}) {
 }
 //#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.1.2";
+var VERSION = "0.2.0";
 function defineEffect(def) {
 	return def;
 }
 //#endregion
-export { ELEMENTS, EVENT, FIXTURES, FXHandle, FXSystem, FixtureRun, LoopHandle, MELEE, RECIPES, SELF, STATUSES, SUPPORT, StatusRun, VERSION, defineEffect, defineLoop, effect, helpers };
+export { BLUNT, ELEMENTS, EVENT, FIXTURES, FXHandle, FXSystem, FixtureRun, LoopHandle, MELEE, RECIPES, SELF, STATUSES, SUPPORT, StatusRun, VERSION, defineEffect, defineLoop, effect, helpers };

@@ -1,4 +1,4 @@
-// Rollshade React Three Fiber entry 0.1.2 — https://rollshade.tsuyatt.com/
+// Rollshade React Three Fiber entry 0.2.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License.
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
@@ -120,6 +120,7 @@ function Status({ target, name, active = true, fade, onFull, onEnd, progress, du
 		active,
 		options.element,
 		options.hue,
+		options.color,
 		options.scale
 	]);
 	useEffect(() => {
@@ -150,6 +151,7 @@ function Loop({ name, position, target, active = true, fade, intensity, ...optio
 		target,
 		options.element,
 		options.hue,
+		options.color,
 		options.scale,
 		options.prop,
 		options.light,

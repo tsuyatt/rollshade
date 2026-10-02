@@ -48,6 +48,7 @@ export interface CircleLook {
 }
 
 export const CIRCLES: Record<string, CircleLook> = {
+  plain: { sidesA: 0, skipA: 1, dots: 4, runes: 0, ticks: 1 },
   fire: { sidesA: 3, skipA: 1, sidesB: 3, skipB: 1, rotB: Math.PI / 3, petals: 6, dots: 6, runes: 1, ticks: 0 },
   ice: { sidesA: 6, skipA: 1, spokes: 6, branch: 1, dots: 6, runes: 2, ticks: 1 },
   thunder: { sidesA: 8, skipA: 3, spokes: 8, waves: 24, runes: 1, ticks: 1 },
@@ -67,6 +68,7 @@ export interface ElementFX {
   extra(c: Ctx, p: THREE.Vector3, pw: number, s: number): void;
   sparks: number;
   glare?: number;
+  physical?: boolean;
   swirl?(c: Ctx, around: (r: number, y?: number) => () => THREE.Vector3, orbit: (w: number, rise: number, r0: number, r1: number, h: number, pull?: number) => Orbit, rate: number): void;
 }
 
@@ -108,6 +110,30 @@ function acid(c: Ctx, chance: number) {
 }
 
 export const ELEMENT_FX: Record<string, ElementFX> = {
+  plain: {
+    sparks: 1.3,
+    glare: 0.75,
+    physical: true,
+    swirl(c, around, orbit, rate) {
+      c.emit('spark', poisson(40 * rate), { p: around(0.8, 0.3), orbit: orbit(10, 2, 0.4, 1, 1), life: [0.15, 0.3], size: [0.01, 0.018], stretch: 0.04, colors: c.cols('core', 'main'), bright: 2.4 * c.B, fadeIn: 0 });
+      c.emit('mote', poisson(25 * rate), { p: around(1), orbit: orbit(6, 1.5, 0.5, 1.1, 1), life: [0.5, 0.9], size: [0.015, 0.025], colors: c.cols('core', 'main'), bright: 1.6 * c.B });
+    },
+    burst(c, p, { n, s, sp, vel }) {
+      const B = c.B;
+      c.emit('spark', n * 0.7, { p, jitter: 0.05 * s, v: vel(sp * 0.6, sp * 1.6), life: [0.15, 0.45], size: [0.01, 0.022], gravity: 9, drag: 1.4, stretch: 0.04, bounce: 0.25, colors: c.cols('core', 'main'), bright: 2.8 * B, fadeIn: 0 });
+      c.emit('shard', n * 0.12, { p, jitter: 0.08 * s, v: vel(sp * 0.3, sp * 0.9), life: [0.4, 0.8], size: [0.02 * s, 0.045 * s], gravity: 9, drag: 1, spin: [-12, 12], bounce: 0.3, colors: [c.pal.main.clone().multiplyScalar(0.8), c.pal.accent, c.pal.accent], bright: 1.1 * B, fadeIn: 0 });
+      c.smoke(p, n * 0.06 * s, { size: [0.22 * s, 0.4 * s], speed: [0.6, 1.6], gravity: -0.2, delay: [0, 0.05] });
+    },
+    trail(c, a) {
+      c.emit('spark', rate(a, 60), { p: along(a), jitter: 0.03 * a.s, v: () => back(a, 0.05).add(randomDir().multiplyScalar(0.8)), life: [0.08, 0.2], size: [0.008, 0.014], gravity: 6, stretch: 0.03, colors: c.cols('core', 'main'), bright: 2.2 * c.B, fadeIn: 0 });
+    },
+    decal: { tint: (c) => (c.pal.smoke ?? c.pal.accent).clone().multiplyScalar(0.5), ember: 'accent', glow: 0, decay: 2, crackScale: 5, crackWidth: 0.05, alpha: 0.7, core: 0 },
+    extra(c, p, pw, s) {
+      const g = c.ground(p);
+      c.dust(g, 1.4 * s);
+      c.emitShape('spark', 40 * pw, { type: 'circle', at: g.clone().setY(g.y + 0.05), r: 0.3 * s }, { outward: [3, 7], v: () => new THREE.Vector3(0, 1.5 + Math.random() * 2, 0), life: [0.2, 0.45], size: [0.01, 0.02], gravity: 9, stretch: 0.04, colors: c.cols('core', 'main'), bright: 2.6 * c.B, fadeIn: 0 });
+    },
+  },
   fire: {
     sparks: 1,
     swirl(c, around, orbit, rate) {

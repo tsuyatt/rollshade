@@ -1,17 +1,17 @@
-// Rollshade FX runtime 0.1.2 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.2.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.1.2';
+export declare const VERSION: '0.2.0';
 
 /** A fixed point, or an Object3D whose world position is read every frame. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;
 
-export type RecipeName = 'projectile' | 'lance' | 'beam' | 'explosion' | 'pillar' | 'meteor' | 'nova' | 'barrier' | 'shockwave' | 'summon' | 'missiles' | 'tornado' | 'storm' | 'drill' | 'finale' | 'heal' | 'buff' | 'warp' | 'slash' | 'thrust' | 'spin' | 'cross' | 'smash' | 'iaido' | 'strike';
+export type RecipeName = 'projectile' | 'lance' | 'beam' | 'explosion' | 'pillar' | 'meteor' | 'nova' | 'barrier' | 'shockwave' | 'summon' | 'missiles' | 'tornado' | 'storm' | 'drill' | 'finale' | 'heal' | 'buff' | 'warp' | 'slash' | 'swipe' | 'rising' | 'cleave' | 'combo' | 'wave' | 'dash' | 'flurry' | 'thrust' | 'spin' | 'cross' | 'smash' | 'iaido' | 'strike' | 'rush' | 'uppercut' | 'kick' | 'heel' | 'palm' | 'tackle' | 'pound';
 
-export type ElementName = 'fire' | 'ice' | 'thunder' | 'wind' | 'earth' | 'water' | 'light' | 'dark' | 'poison' | 'arcane';
+export type ElementName = 'plain' | 'fire' | 'ice' | 'thunder' | 'wind' | 'earth' | 'water' | 'light' | 'dark' | 'poison' | 'arcane';
 
 /** A move definition. Make one with `effect()`; `id` is what `fx.play(id)` looks up. */
 export interface EffectDef {
@@ -19,6 +19,8 @@ export interface EffectDef {
   recipe: RecipeName | (string & {});
   element: ElementName | (string & {});
   hue?: number;
+  /** Base colour (0xrrggbb) that replaces the element's colours. */
+  color?: number;
   params?: Record<string, number>;
 }
 
@@ -46,6 +48,8 @@ export interface HitEvent {
   /** Suggested hit-stop in seconds (applied for you with `feel: true`). */
   hitStop: number;
   role: HitRole;
+  /** Unit direction to push the target (knockback): away from the attacker, up for uppercuts, down for slams. */
+  dir: THREE.Vector3;
 }
 
 /** `'cast'`: charge starts. `'release'`: fired or swung. `'hit'`: a hit lands (`barrier`, `buff` and `warp` send none). `'vanish'` / `'appear'`: warp only. `'end'`: the move is over. */
@@ -91,10 +95,12 @@ export declare class FXHandle {
   readonly id: string;
   readonly playing: boolean;
   readonly done: Promise<void>;
-  /** Melee blade path, updated every frame (not for `strike`). */
+  /** Melee blade path, updated every frame (not for fist and kick moves). */
   readonly blade: { base: THREE.Vector3; tip: THREE.Vector3; active: boolean };
-  /** Position of the projectile head or fist while the move travels. */
+  /** Position of the projectile head, fist or foot while the move travels. */
   readonly head: THREE.Vector3;
+  /** Hints for animating the attacker, updated every frame by melee moves: root `offset` from where the move started (steps, dashes, jumps; back to zero as the move settles), forward `lean` and `turn` in radians, and which `limb` `head` follows. */
+  readonly body: { offset: THREE.Vector3; lean: number; turn: number; limb: 'fist' | 'foot' | null };
   on(event: 'hit', fn: (e: HitEvent) => void): () => void;
   on(event: 'vanish' | 'appear', fn: (e: { point: THREE.Vector3 }) => void): () => void;
   on(event: 'cast' | 'release' | 'end', fn: () => void): () => void;
@@ -154,6 +160,7 @@ export type StatusName = 'burn' | 'freeze' | 'shock' | 'poison' | 'petrify' | 'd
 export interface StatusOptions {
   element?: ElementName | (string & {});
   hue?: number;
+  color?: THREE.ColorRepresentation;
   progress?: number;
   duration?: number;
   scale?: number;
@@ -181,6 +188,7 @@ export interface LoopOptions {
   floorY?: number;
   element?: ElementName | (string & {});
   hue?: number;
+  color?: THREE.ColorRepresentation;
   scale?: number;
   prop?: boolean;
   light?: boolean;
@@ -257,6 +265,8 @@ export interface EffectOptions {
   seed?: number | string;
   id?: string;
   hue?: number;
+  /** Base colour for the move, e.g. `0xff3355` or `'#ff3355'`; works with every element. */
+  color?: number | string;
   params?: Record<string, number>;
 }
 
@@ -266,6 +276,8 @@ export declare function effect(recipe: RecipeName, element?: ElementName, option
 export declare const ELEMENTS: Record<ElementName, { core: number; main: number; accent: number; smoke: number | null }>;
 export declare const RECIPES: Record<RecipeName, { defaults: Record<string, number> }>;
 export declare const MELEE: Set<string>;
+/** Fist, kick and body moves (a subset of MELEE). */
+export declare const BLUNT: Set<string>;
 export declare const SUPPORT: Set<string>;
 export declare const SELF: Set<string>;
 export declare const EVENT: Set<string>;

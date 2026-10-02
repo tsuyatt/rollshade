@@ -13,6 +13,7 @@ export type StatusName = 'burn' | 'freeze' | 'shock' | 'poison';
 export interface StatusOptions {
   element?: string;
   hue?: number;
+  color?: THREE.ColorRepresentation;
   progress?: number;
   duration?: number;
   scale?: number;
@@ -421,7 +422,7 @@ export class StatusRun {
   ) {
     this.done = new Promise((r) => (this.resolve = r));
     const element = opts.element ?? recipe.element;
-    this.pal = palette(element, opts.hue ?? 0);
+    this.pal = palette(element, opts.hue ?? 0, opts.color);
     this.shade = (this.pal.smoke ?? this.pal.accent).clone().lerp(this.pal.accent, 0.45);
     this.ctx = new Ctx(fx, handle, { id: `status-${name}`, recipe: 'status', element, hue: opts.hue ?? 0 }, this.pal, { from: layer.target, to: layer.target, scale: opts.scale ?? 1 });
     this.ctx.params = {};

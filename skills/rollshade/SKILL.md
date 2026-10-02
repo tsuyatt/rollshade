@@ -54,7 +54,7 @@ renderer.setAnimationLoop((ms) => {
 const h = fx.play('fire-meteor', { from: player.hand, to: enemy.chest });
 h.on('hit', (e) => {
   enemy.hp -= Math.round(10 * e.power);
-  if (e.role === 'final') enemy.knockback(e.point);
+  if (e.role === 'final') enemy.knockback(e.dir); // unit vector: away from the attacker, up or down for launchers and slams
 });
 h.on('end', () => {});
 ```
@@ -86,21 +86,35 @@ h.on('end', () => {});
 | `tornado` | magic | caster's hand | target | Tornado drifts onto the target, ticks, then flings it |
 | `storm` | magic | caster's hand | target | Elemental weather over an area: fire rain, blizzard, thunderstorm, sandstorm… |
 | `drill` | magic | caster's hand | target | Spinning cone that grinds into the target, then pierces |
-| `slash` | melee | attacker's chest | target | Wind-up and sweep; hits when the blade crosses the target |
-| `thrust` | melee | attacker's chest | target | Pull back and thrust with a piercing burst |
-| `spin` | melee | attacker's chest | target | Full spin slash with a ground ring and dust |
-| `cross` | melee | attacker's chest | target | Two diagonal slashes that explode as a cross |
-| `smash` | melee | attacker's chest | target | Overhead smash; a fissure runs to the target |
-| `iaido` | melee | attacker's chest | target | Gather light, one instant cut, a delayed slash mark and big impact |
-| `strike` | melee | attacker's chest | target | Jabs and a heavy punch with a forward shock cone |
+| `slash` | blade | attacker's chest | target | Diagonal downward cut; hits when the blade crosses the target |
+| `swipe` | blade | attacker's chest | target | Just the swing trail and a few sparks, still with a hit event: the quietest blade move |
+| `rising` | blade | attacker's chest | target | Upward cut that knocks the target up |
+| `cleave` | blade | attacker's chest | target | Overhead vertical cut; the mark splits a moment later |
+| `combo` | blade | attacker's chest | target | Three hits: horizontal, backhand, overhead finisher |
+| `wave` | blade | attacker's chest | target | A swing throws a crescent blade wave at the target |
+| `dash` | blade | attacker's chest | target | Dashes through the target with a low blade; the cut lands after a beat |
+| `flurry` | blade | attacker's chest | target | A storm of short cuts from every angle, then a finisher |
+| `thrust` | blade | attacker's chest | target | Pull back and thrust with a piercing burst |
+| `spin` | blade | attacker's chest | target | Full spin slash with a ground ring and dust |
+| `cross` | blade | attacker's chest | target | Two diagonal slashes that explode as a cross |
+| `smash` | blade | attacker's chest | target | Overhead smash; a fissure runs to the target |
+| `iaido` | blade | attacker's chest | target | Gather light, one instant cut, a delayed slash mark and big impact |
+| `strike` | fist | attacker's chest | target | One-two: jabs and a heavy punch with a forward shock cone |
+| `rush` | fist | attacker's chest | target | A barrage of alternating punches, then a straight |
+| `uppercut` | fist | attacker's chest | target | Crouch and drive the fist up through the target, knocking it up |
+| `kick` | kick | attacker's chest | target | Roundhouse kick sweeping at waist height |
+| `heel` | kick | attacker's chest | target | Axe kick: the leg rises overhead and slams down, cracking the ground |
+| `palm` | fist | attacker's chest | target | Short palm push; the shock passes through and bursts out of the target's back |
+| `tackle` | body | attacker's chest | target | Shoulder charge across the gap with dust and speed lines |
+| `pound` | fist | attacker's chest | target | Jump and punch the ground; a shockwave runs along the floor to the target |
 | `heal` | support | caster's hand | ally | Light flies to the ally and rises around them (hit with power 0) |
 | `buff` | support | caster's chest | (unused) | Burst and a lasting aura on the caster |
 | `warp` | support | caster's chest | destination | Caster vanishes and reappears on the ground 0.9–1.8 m in front of `to`, on the caster's side (`vanish` / `appear` events carry ground points) |
 | `finale` | event | (unused) | enemy's chest | Defeat: light rays, chained blasts, implosion and a flash |
 
-Melee moves expect the attacker about 2 m from the target. The blade path is written to `handle.blade.base` / `handle.blade.tip` every frame, so you can attach your own sword to it (`strike` is bare-handed and has no blade).
+Blade, fist and kick moves expect the attacker about 2 m from the target (`dash` and `tackle` cover the gap themselves). The blade path is written to `handle.blade.base` / `handle.blade.tip` every frame, so you can attach your own sword to it; fist and kick moves write the fist or foot to `handle.head` instead and set `handle.body.limb` to `'fist'` or `'foot'`. `handle.body` also carries hints for animating the attacker: `offset` (root movement since the move started, for steps, dashes and jumps), `lean` and `turn` in radians. `offset` returns to zero as the move settles; to keep the distance a `dash` or `tackle` covered, move your character by the furthest offset rather than following it back. Every `hit` event has `dir`, the direction to knock the target back (up for `rising` and `uppercut`, down for `cleave` and `heel`).
 
-**Elements:** `fire`, `ice`, `thunder`, `wind`, `earth`, `water`, `light`, `dark`, `poison`, `arcane`.
+**Elements:** `plain`, `fire`, `ice`, `thunder`, `wind`, `earth`, `water`, `light`, `dark`, `poison`, `arcane`. `plain` has no magic: metal sparks, dust and scuffs, for games without spells. Any element takes your own colour: `effect('slash', 'plain', { color: 0xff3355 })`; statuses and loops take `color` too.
 
 ## Status effects on characters
 
@@ -133,7 +147,8 @@ const l = fx.loop('barrier', pos); l.impact(p); l.stop();
 ## Game patterns
 
 - **Enemy waves:** create one `FXSystem`, add every move once at load, and call `fx.play()` per cast. Never create a new `FXSystem` per cast.
-- **Melee:** move the attacker to about 2 m from the target before `fx.play()`; `from` is the attacker's chest. Attach a sword mesh to `h.blade.base` / `h.blade.tip` if you want one.
+- **Melee:** move the attacker to about 2 m from the target before `fx.play()`; `from` is the attacker's chest. Attach a sword mesh to `h.blade.base` / `h.blade.tip` if you want one; fist and kick moves put the fist or foot in `h.head` (`h.body.limb` says which). `h.body.offset`, `lean` and `turn` are hints for moving the attacker (`dash` and `tackle` run across the gap), and each hit's `e.dir` is the knockback direction.
+- **No magic:** use the `plain` element (metal sparks and dust only); any element takes `{ color: 0xrrggbb }`.
 - **Warp:** hide the player on `'vanish'`, then `h.on('appear', (e) => player.position.copy(e.point))`. The point is on the ground 0.9–1.8 m in front of `to`, on the caster's side, so pass the enemy as `to`, not a spot beside it.
 - **Heal:** the single `hit` has power 0; restore health in that handler.
 - **Defeat:** `fx.play(effect('finale', 'light'), { from: enemy.chest, to: enemy.chest })` when an enemy dies, then remove the enemy on `'end'`.

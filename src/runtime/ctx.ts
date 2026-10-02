@@ -511,14 +511,15 @@ export class Ctx {
     this.efx.trail(this, { head, prev, vel, dt, s: s * this.scale, density });
   }
 
-  impact(p: THREE.Vector3, o: { power?: number; dir?: THREE.Vector3; ringNormal?: RingNormal; scale?: number; hit?: boolean; extra?: boolean; role?: HitRole } = {}): void {
+  impact(p: THREE.Vector3, o: { power?: number; dir?: THREE.Vector3; push?: THREE.Vector3; ringNormal?: RingNormal; scale?: number; hit?: boolean; extra?: boolean; role?: HitRole } = {}): void {
     const pw = (o.power ?? 1) * this.power;
     const s = (o.scale ?? 1) * this.scale;
-    this.light(p, 3 * pw * s, 0.4);
+    const physical = this.efx.physical === true;
+    this.light(p, (physical ? 1.5 : 3) * pw * s, 0.4);
     this.star(p, 1.5 * s * Math.sqrt(pw), 0.16);
-    this.flare(p, s * pw);
-    this.glow(p, 1.1 * s * Math.sqrt(pw), 0.3, 1.6);
-    this.sphere(p, 0.9 * s * Math.sqrt(pw), 0.45, 1.6);
+    if (!physical) this.flare(p, s * pw);
+    this.glow(p, (physical ? 0.6 : 1.1) * s * Math.sqrt(pw), physical ? 0.18 : 0.3, 1.6);
+    if (!physical) this.sphere(p, 0.9 * s * Math.sqrt(pw), 0.45, 1.6);
     this.ring(p, 1.3 * s, { normal: o.ringNormal ?? 'camera', dur: 0.35, thick: 0.1 });
     this.wave(p, 1.8 * s * pw, 0.45, pw);
     const h = this.heightAboveFloor(p);
@@ -529,15 +530,18 @@ export class Ctx {
     }
     this.burst(p, { count: 70 * pw, dir: o.dir, spread: o.dir ? 0.8 : 1, scale: o.scale });
     if (o.extra) this.efx.extra(this, p, pw, s);
-    if (o.hit !== false) this.hit(p, pw * s, o.role);
+    if (o.hit !== false) this.hit(p, pw * s, o.role, o.push ?? o.dir);
   }
 
   private lastAnime = -1;
   private stopUsed = 0;
   private stopEnd = -1;
 
-  hit(p: THREE.Vector3, pw: number, role?: HitRole): void {
+  hit(p: THREE.Vector3, pw: number, role?: HitRole, push?: THREE.Vector3): void {
     const now = this.fx.scheduler.time;
+    const dir = push ? push.clone() : p.clone().sub(this.from()).setY(0);
+    if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0);
+    dir.normalize();
     const r: HitRole = role ?? (this.hits === 0 ? 'first' : 'link');
     if ((this.params.anime ?? 0) > 0 && pw >= 0.75 && r !== 'tick' && this.fx.scheduler.time - this.lastAnime > 0.12) {
       this.lastAnime = this.fx.scheduler.time;
@@ -557,7 +561,7 @@ export class Ctx {
     }
     const big = r === 'first' || r === 'final';
     const shake = (big ? 0.3 : r === 'link' ? 0.12 : 0.06) * pw;
-    const e: HitEvent = { point: p.clone(), power: pw, index: this.hits++, shake, hitStop: stop, role: r };
+    const e: HitEvent = { point: p.clone(), power: pw, index: this.hits++, shake, hitStop: stop, role: r, dir };
     this.handle.emit('hit', e);
     if (!this.fx.feel) return;
     this.fx.shake(e.shake);
@@ -811,7 +815,7 @@ export class Ctx {
     };
   }
 
-  arc(o: { pivot: THREE.Vector3; e1: THREE.Vector3; e2: THREE.Vector3; a0: number; a1: number; r0: number; r1: number; dur: number; ease: (t: number) => number; lag: number; hold?: number }): void {
+  arc(o: { pivot: THREE.Vector3; e1: THREE.Vector3; e2: THREE.Vector3; a0: number; a1: number; r0: number; r1: number; dur: number; ease: (t: number) => number; lag: number; hold?: number; offset?: THREE.Vector3 }): void {
     const prim = this.fx.prims.acquire('arc');
     arcGeometry(prim.mesh.geometry, o.pivot, o.e1, o.e2, o.a0, o.a1, o.r0, o.r1);
     prim.u.core.value.copy(this.pal.core);
@@ -824,8 +828,10 @@ export class Ctx {
     prim.u.time.value = 0;
     const hold = o.hold ?? 0.12;
     const total = o.dur + hold + o.lag * o.dur;
+    if (o.offset) prim.mesh.position.copy(o.offset);
     this.live(prim, total, (_k, age) => {
       prim.u.time.value = age;
+      if (o.offset && age <= o.dur) prim.mesh.position.copy(o.offset);
       const k = Math.min(age / o.dur, 1);
       const over = Math.max(age - o.dur, 0);
       prim.u.head.value = o.ease(k) + over / o.dur;
@@ -833,7 +839,31 @@ export class Ctx {
     });
   }
 
-  crescent(p: THREE.Vector3, size: number, screenAngle: number, o: { hold?: number; bend?: number } = {}): void {
+  crescent(p: THREE.Vector3, size: number, screenAngle: number, o: { hold?: number; bend?: number; from?: THREE.Vector3; tangent?: THREE.Vector3 } = {}): void {
+    if (o.from) {
+      const cam0 = this.fx.camera as THREE.PerspectiveCamera;
+      const aspect = cam0.aspect ?? 1;
+      const flat = (v: THREE.Vector3) => {
+        const q = v.clone().project(cam0);
+        return new THREE.Vector2(q.x * aspect, q.y);
+      };
+      let bulge: THREE.Vector2;
+      const r = p.clone().sub(o.from);
+      const t = o.tangent ? o.tangent.clone().sub(r.clone().multiplyScalar(o.tangent.dot(r) / Math.max(r.lengthSq(), 1e-6))) : null;
+      if (t && t.lengthSq() > 1e-6 && r.lengthSq() > 1e-4) {
+        const d = 0.35;
+        t.normalize().multiplyScalar(r.length() * Math.sin(d));
+        const rc = r.clone().multiplyScalar(Math.cos(d));
+        const a = flat(o.from.clone().add(rc).sub(t));
+        const b = flat(o.from.clone().add(rc).add(t));
+        const mid = flat(p);
+        const chord = b.clone().sub(a);
+        if (chord.lengthSq() > 1e-8) screenAngle = Math.atan2(chord.y, chord.x);
+        bulge = mid.sub(a.add(b).multiplyScalar(0.5));
+        if (bulge.lengthSq() < 1e-10) bulge = flat(p).sub(flat(o.from));
+      } else bulge = flat(p).sub(flat(o.from));
+      if (-Math.sin(screenAngle) * bulge.x + Math.cos(screenAngle) * bulge.y < 0) screenAngle += Math.PI;
+    }
     const prim = this.fx.prims.acquire('crescent');
     const m = prim.mesh;
     prim.u.core.value.copy(this.pal.core);

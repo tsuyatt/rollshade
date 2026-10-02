@@ -94,7 +94,7 @@ export function heal(ctx: Ctx, p: P): void {
   ctx.after(land, () => {
     const at = g();
     const chest = at.clone().setY(at.y + h * 0.55);
-    ctx.handle.emit('hit', { point: chest.clone(), power: 0, index: 0, shake: 0, hitStop: 0, role: 'final' });
+    ctx.handle.emit('hit', { point: chest.clone(), power: 0, index: 0, shake: 0, hitStop: 0, role: 'final', dir: new THREE.Vector3(0, 1, 0) });
     ctx.emit('glow', 1, { p: chest, speed: 0, life: 0.35, size: 1.3 * r, grow: 1.4, sizeCurve: 'burst', colors: ctx.cols('core', 'main'), bright: 1.4 * B, fadeIn: 0.1, alphaCurve: 'bell' });
     ctx.band(at.clone().setY(at.y + 0.03), { radius: 1.6 * r, inner: 0.7, dur: 0.7, noise: 0.6, grow: (k) => 0.3 + 0.7 * ease.outQuad(k) });
     ctx.light(chest, 2.2, 0.5);

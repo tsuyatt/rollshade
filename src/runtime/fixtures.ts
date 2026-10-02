@@ -16,6 +16,7 @@ export interface FixtureOptions {
   floorY?: number;
   element?: string;
   hue?: number;
+  color?: THREE.ColorRepresentation;
   scale?: number;
   prop?: boolean;
   light?: boolean;
@@ -72,7 +73,7 @@ export class FixtureRun {
   ) {
     this.done = new Promise((r) => (this.resolve = r));
     const element = opts.element ?? recipe.element;
-    this.pal = palette(element, opts.hue ?? 0);
+    this.pal = palette(element, opts.hue ?? 0, opts.color);
     this.scale = opts.scale ?? 1;
     this.prop = opts.prop ?? true;
     this.lit = opts.light ?? true;

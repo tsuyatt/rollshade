@@ -27,7 +27,21 @@ export const RANGES: Record<string, Record<string, Span>> = {
   buff: { circleFeet: [-4, 8, 'int'], charge: [0.22, 0.4], hold: [2, 3.5], radius: [0.48, 0.65], height: [1.8, 2.4], rate: [0.8, 1.3], pulse: [1.4, 2.2] },
   strike: { windup: [0.12, 0.25], hits: [1, 3, 'int'], power: [1.2, 1.8], size: [0.85, 1.2], cone: [0.6, 1.2], anime: [0, 0, 'int'] },
   shockwave: { circleFeet: [-4, 8, 'int'], charge: [0.18, 0.35], count: [1, 3, 'int'], speed: [10, 16], span: [100, 160], size: [0.85, 1.25], power: [1.1, 1.6], anime: [0, 0, 'int'] },
-  slash: { windup: [0.08, 0.18], dur: [0.14, 0.24], sweep: [150, 230], roll: [-60, 60], lag: [0.45, 0.8], power: [0.9, 1.6], sparks: [0.6, 1.4], anime: [0, 0, 'int'] },
+  slash: { windup: [0.08, 0.18], dur: [0.14, 0.24], sweep: [150, 220], roll: [30, 80], mirror: [0, 1, 'int'], lag: [0.45, 0.8], power: [0.9, 1.6], sparks: [0.6, 1.4], anime: [0, 0, 'int'] },
+  swipe: { windup: [0.07, 0.14], dur: [0.12, 0.2], sweep: [150, 220], roll: [30, 80], mirror: [0, 1, 'int'], lag: [0.45, 0.8], power: [0.8, 1.3], sparks: [0, 0.6] },
+  rising: { windup: [0.1, 0.2], dur: [0.14, 0.22], sweep: [150, 210], roll: [50, 85], mirror: [0, 1, 'int'], lag: [0.45, 0.8], power: [1.1, 1.6], sparks: [0.6, 1.4], anime: [0, 0, 'int'] },
+  cleave: { windup: [0.22, 0.4], dur: [0.09, 0.15], split: [0.12, 0.28], power: [1.6, 2.1], anime: [0, 0, 'int'] },
+  combo: { windup: [0.08, 0.14], dur: [0.1, 0.16], gap: [0.03, 0.1], power: [1.4, 1.9], anime: [0, 0, 'int'] },
+  wave: { windup: [0.08, 0.16], dur: [0.1, 0.15], roll: [-30, 60], speed: [10, 18], size: [0.8, 1.3], power: [1.1, 1.6], anime: [0, 0, 'int'] },
+  dash: { charge: [0.12, 0.28], dash: [0.1, 0.18], over: [0.8, 2], delay: [0.18, 0.35], power: [1.5, 2], anime: [0, 0, 'int'] },
+  flurry: { windup: [0.08, 0.16], count: [6, 12, 'int'], dur: [0.045, 0.075], gap: [0.005, 0.03], power: [1.4, 1.9], anime: [0, 0, 'int'] },
+  rush: { windup: [0.1, 0.2], count: [6, 14, 'int'], gap: [0.05, 0.08], size: [0.85, 1.2], power: [1.5, 2], anime: [0, 0, 'int'] },
+  uppercut: { windup: [0.15, 0.28], rise: [0.1, 0.18], size: [0.85, 1.2], power: [1.5, 2], anime: [0, 0, 'int'] },
+  kick: { windup: [0.12, 0.22], dur: [0.13, 0.2], height: [0.8, 1.5], size: [0.85, 1.2], power: [1.4, 1.9], anime: [0, 0, 'int'] },
+  heel: { windup: [0.25, 0.4], dur: [0.09, 0.15], size: [0.85, 1.2], power: [1.7, 2.1], anime: [0, 0, 'int'] },
+  palm: { windup: [0.14, 0.24], delay: [0.06, 0.16], size: [0.85, 1.2], power: [1.6, 2], anime: [0, 0, 'int'] },
+  tackle: { charge: [0.16, 0.3], dash: [0.15, 0.26], size: [0.85, 1.2], power: [1.6, 2], anime: [0, 0, 'int'] },
+  pound: { windup: [0.3, 0.46], speed: [7, 12], size: [0.85, 1.25], power: [1.6, 2], anime: [0, 0, 'int'] },
   thrust: { windup: [0.12, 0.22], dur: [0.09, 0.15], power: [1.1, 1.6], anime: [0, 0, 'int'] },
   spin: { windup: [0.06, 0.14], dur: [0.3, 0.45], sweep: [380, 460], roll: [-10, 15], power: [0.9, 1.3], anime: [0, 0, 'int'] },
   cross: { windup: [0.1, 0.16], dur: [0.12, 0.18], gap: [0.15, 0.3], power: [1.4, 1.9], anime: [0, 0, 'int'] },
@@ -67,9 +81,9 @@ export function clampParams(recipe: string, params: Record<string, number>): Rec
 
 export const FX_DEFAULT = { fxRecipe: 'projectile', fxElement: 'fire' };
 
-export function effectFor(recipe: string, element: string, seed: number, overrides: Record<string, number>): EffectDef {
+export function effectFor(recipe: string, element: string, seed: number, overrides: Record<string, number>, color: number | null = null): EffectDef {
   const base = variant(recipe, element, seed);
-  return { ...base, params: { ...base.params, ...overrides } };
+  return { ...base, ...(color != null ? { color, hue: 0 } : {}), params: { ...base.params, ...overrides } };
 }
 
 export type FxKind = 'move' | 'status' | 'loop';

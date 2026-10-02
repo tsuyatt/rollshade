@@ -31,9 +31,13 @@ export function strike(ctx: Ctx, p: P): void {
     return back.lerp(hit, k);
   };
   const charge = ctx.hold(4);
+  const body = ctx.handle.body;
+  body.limb = 'fist';
   ctx.during(0, p.windup, (k, dt) => {
     const f = fistAt(0);
     ctx.handle.head.copy(f);
+    body.lean = -0.15 * k;
+    body.turn = 0.35 * k;
     if (Math.random() < dt * 30) ctx.glow(f, (0.15 + 0.3 * ease.inQuad(k)) * s, 0.08, 1 + 1.5 * k);
     ctx.emitShape('spark', poisson(60 * dt * k), { type: 'sphere', at: f, r: 0.5 * s }, { hook: ctx.hook({ seek: { target: f, speed: 4, steer: 8, arrive: 0.05 } }), v: () => new THREE.Vector3(), life: 0.4, size: [0.01, 0.018], stretch: 0.05, colors: ctx.cols('core', 'main'), bright: 2.4 * B, alphaCurve: 'hold' });
     charge.set(f, 30 * k);
@@ -54,10 +58,20 @@ export function strike(ctx: Ctx, p: P): void {
       ctx.during(0, travel, (k, dt) => {
         const f = start.clone().lerp(end, ease.outExpo(k));
         ctx.handle.head.copy(f);
+        body.lean = 0.3 * ease.outExpo(k);
+        body.turn = (i % 2 ? 0.3 : -0.3) * ease.outExpo(k);
+        body.offset.copy(aim).multiplyScalar(0.3 * ease.outExpo(k));
         ctx.emit('glow', 1, { p: f, speed: 0, life: 0.06, size: (last ? 0.45 : 0.3) * s, colors: ctx.cols('core', 'main'), bright: 1.4 * B, fadeIn: 0 });
         ctx.emit('spark', poisson(300 * dt), { p: f, jitter: 0.08 * s, v: () => aim.clone().multiplyScalar(-2).add(randomDir().multiplyScalar(1.5)), life: [0.08, 0.16], size: [0.012, 0.02], stretch: 0.05, colors: ctx.cols('core', 'main'), bright: 2.6 * B, fadeIn: 0 });
       }, () => {
         ctx.part('hit');
+        if (last)
+          ctx.during(0.2, 0.35, (k) => {
+            body.lean = 0.3 * (1 - k);
+            body.turn = (i % 2 ? 0.3 : -0.3) * (1 - k);
+            body.offset.copy(aim).multiplyScalar(0.3 * (1 - k));
+            if (k >= 1) body.limb = null;
+          });
         const at = ctx.to().addScaledVector(aim, -0.25);
         ctx.impact(at, { power: pw, dir: aim, ringNormal: aim, scale: (last ? 0.8 : 0.5) * p.size, extra: last && p.power >= 1.4, role: last && hits > 1 ? 'final' : undefined });
         ctx.band(at.clone().addScaledVector(aim, 0.2), { radius: (last ? 1.4 : 0.8) * s, inner: 0.78, normal: aim, hard: 0.8, noise: 1, dur: 0.3, grow: (k) => 0.2 + 0.8 * ease.outExpo(k) });

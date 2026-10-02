@@ -234,6 +234,9 @@ export class PrimPool {
       return;
     }
     prim.mesh.removeFromParent();
+    prim.mesh.position.set(0, 0, 0);
+    prim.mesh.quaternion.identity();
+    prim.mesh.scale.set(1, 1, 1);
     const type = prim.mesh.userData.type as string;
     if (!this.free.has(type)) this.free.set(type, []);
     const list = this.free.get(type)!;

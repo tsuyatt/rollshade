@@ -1,3 +1,4 @@
+import { Color } from 'three/webgpu';
 import { variant } from '../core/fx/variation';
 import { seedFromString } from '../core/rng/hash';
 import { ELEMENTS } from './palette';
@@ -10,6 +11,7 @@ export interface EffectOptions {
   seed?: number | string;
   id?: string;
   hue?: number;
+  color?: number | string;
   params?: Record<string, number>;
 }
 
@@ -23,7 +25,8 @@ export function effect(recipe: string, element = 'fire', options: EffectOptions 
   return {
     ...base,
     id: options.id ?? (options.seed === undefined ? `${element}-${recipe}` : base.id),
-    hue: options.hue ?? base.hue,
+    hue: options.hue ?? (options.color != null ? 0 : base.hue),
+    ...(options.color != null ? { color: new Color(options.color).getHex() } : {}),
     params: { ...base.params, ...options.params },
   };
 }

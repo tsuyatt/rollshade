@@ -91,7 +91,7 @@ export function Status({ target, name, active = true, fade, onFull, onEnd, progr
       r.stop(fade);
       run.current = null;
     };
-  }, [fx, target, name, active, options.element, options.hue, options.scale]);
+  }, [fx, target, name, active, options.element, options.hue, options.color, options.scale]);
   useEffect(() => {
     if (run.current && progress !== undefined) run.current.to(progress, duration ?? 0.3);
   }, [progress]);
@@ -119,7 +119,7 @@ export function Loop({ name, position, target, active = true, fade, intensity, .
       r.stop(fade);
       run.current = null;
     };
-  }, [fx, name, active, target, options.element, options.hue, options.scale, options.prop, options.light, options.rotation]);
+  }, [fx, name, active, target, options.element, options.hue, options.color, options.scale, options.prop, options.light, options.rotation]);
   useEffect(() => {
     if (run.current && !target) run.current.moveTo(at);
   }, [at.x, at.y, at.z]);

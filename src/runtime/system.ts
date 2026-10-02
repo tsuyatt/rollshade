@@ -22,6 +22,7 @@ export interface EffectDef {
   recipe: string;
   element: string;
   hue?: number;
+  color?: number;
   params?: Record<string, number>;
 }
 
@@ -42,6 +43,7 @@ export interface HitEvent {
   shake: number;
   hitStop: number;
   role: HitRole;
+  dir: THREE.Vector3;
 }
 
 export type FXEvent = 'cast' | 'release' | 'hit' | 'vanish' | 'appear' | 'end';
@@ -82,6 +84,7 @@ export class FXHandle {
   playing = true;
   readonly blade = { base: new THREE.Vector3(), tip: new THREE.Vector3(), active: false };
   readonly head = new THREE.Vector3();
+  readonly body = { offset: new THREE.Vector3(), lean: 0, turn: 0, limb: null as 'fist' | 'foot' | null };
   private listeners = new Map<FXEvent, Set<(e: any) => void>>();
   readonly done: Promise<void>;
   private resolve!: () => void;
@@ -110,6 +113,9 @@ export class FXHandle {
     }
     this.playing = false;
     this.blade.active = false;
+    this.body.offset.set(0, 0, 0);
+    this.body.lean = this.body.turn = 0;
+    this.body.limb = null;
     try {
       this.send('end');
     } finally {
@@ -374,7 +380,7 @@ export class FXSystem {
     const handle = new FXHandle(def.id, this);
     this.handles.add(handle);
     handle.done.then(() => this.handles.delete(handle));
-    const pal: Palette = palette(def.element, def.hue ?? 0);
+    const pal: Palette = palette(def.element, def.hue ?? 0, def.color);
     const ctx = new Ctx(this, handle, def, pal, opts);
     ctx.params = clampParams(def.recipe, { ...recipeDefaults(def.recipe), ...def.params });
     const outer = this.scheduler.part;
