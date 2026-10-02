@@ -332,8 +332,10 @@ export class FXSystem {
 
   add(...defs: (EffectDef | LoopDef)[]): this {
     for (const d of defs) {
-      if ((d as LoopDef).kind === 'loop') this.loopDefs.set(d.id, d as LoopDef);
-      else this.defs.set(d.id, d as EffectDef);
+      if ((d as LoopDef).kind === 'loop') {
+        this.loopDefs.set(d.id, d as LoopDef);
+        if ((d as LoopDef).bloom && this.post) this.post.loopBloomUsed = true;
+      } else this.defs.set(d.id, d as EffectDef);
     }
     return this;
   }
@@ -341,6 +343,7 @@ export class FXSystem {
   spawn(effect: string | LoopDef, opts: SpawnOptions = {}): LoopHandle {
     const def = typeof effect === 'string' ? this.loopDefs.get(effect) : effect;
     if (!def) throw new Error(`rollshade: unknown loop "${effect}"`);
+    if (def.bloom && this.post) this.post.loopBloomUsed = true;
     if (def.object && !opts.object) throw new Error(`rollshade: "${def.id}" needs { object }`);
     const instance = def.create({ scene: this.scene, camera: this.camera, renderer: this.renderer, object: opts.object, period: opts.period ?? def.period });
     if (instance.object && opts.scale) instance.object.scale.multiplyScalar(opts.scale);

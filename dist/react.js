@@ -1,4 +1,4 @@
-// Rollshade React Three Fiber entry 0.1.1 — https://rollshade.tsuyatt.com/
+// Rollshade React Three Fiber entry 0.1.2 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License.
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber";

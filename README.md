@@ -250,6 +250,7 @@ new FXSystem({
 ```
 
 - Heavy scenes: `fx.setQuality('low')` renders the scene at 55% resolution with fewer particles (`'medium'`: 75%), or set `fx.renderScale` (0.25–1) directly; `'auto'` does this only while frames run over budget and raises it again. Render scale works with `post: true`.
+- High-DPI screens: with `post: true` the scene pass multisamples like your renderer. `new WebGPURenderer({ antialias: devicePixelRatio < 1.5 })` skips MSAA where the extra pixels already hide jagged edges, which saves about 48 bytes of GPU memory per pixel (about 250 MB on a 2880×1800 canvas) and some GPU time.
 - Have your own post processing? Pass `post: false` and render as usual; you lose the built-in bloom and camera shake, and can use `e.shake` from hit events instead.
 - `fx.timeScale` for slow motion, `fx.shake(amount)` and `fx.hitStop(seconds)` to trigger them yourself. To freeze only when something is actually hit, set `hitStopScale: 0` and call `fx.hitStop(e.hitStop)` from your `hit` handler when the hit lands on a target.
 - `fx.clear()` stops everything; `fx.dispose()` frees GPU resources. Create one `FXSystem` per scene and keep it: re-creating it is expensive. To switch cameras, set `fx.camera = otherCamera`; perspective and orthographic cameras both work.

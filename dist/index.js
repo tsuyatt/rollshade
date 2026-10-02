@@ -1,10 +1,10 @@
-// Rollshade FX runtime 0.1.1 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.1.2 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import * as THREE from "three/webgpu";
 import { Color } from "three/webgpu";
-import { Fn, PI, TWO_PI, abs, atan, billboarding, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, cos, cross, dot, emissive, exp, faceDirection, float, floor, fract, fwidth, hash, instanceColor, instanceIndex, instancedDynamicBufferAttribute, length, materialColor, materialEmissive, materialMetalness, materialRoughness, max, min, mix, mod, modelWorldMatrix, mrt, mul, mx_cell_noise_float, mx_noise_float, mx_worley_noise_float, mx_worley_noise_vec2, normalGeometry, normalLocal, normalView, normalWorld, normalize, oneMinus, output, pass, positionGeometry, positionLocal, positionView, positionViewDirection, positionWorld, pow, rotate, select, sign, sin, smoothstep, sqrt, step, sub, texture, uniform, uniformArray, uv, varying, vec2, vec3, vec4 } from "three/tsl";
+import { Fn, If, PI, TWO_PI, abs, atan, billboarding, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, clamp, cos, cross, dot, emissive, exp, faceDirection, float, floor, fract, fwidth, hash, instanceColor, instanceIndex, instancedDynamicBufferAttribute, length, materialColor, materialEmissive, materialMetalness, materialRoughness, max, min, mix, mod, modelWorldMatrix, mrt, mul, mx_cell_noise_float, mx_noise_float, mx_worley_noise_float, mx_worley_noise_vec2, normalGeometry, normalLocal, normalView, normalWorld, normalize, oneMinus, output, pass, positionGeometry, positionLocal, positionView, positionViewDirection, positionWorld, pow, rotate, select, sign, sin, smoothstep, sqrt, step, sub, texture, uniform, uniformArray, uv, varying, vec2, vec3, vec4 } from "three/tsl";
 import { MeshSurfaceSampler } from "three/addons/math/MeshSurfaceSampler.js";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 //#region src/runtime/lights.ts
@@ -13496,7 +13496,9 @@ var FXPost = class {
 	renderer;
 	camera;
 	pipeline;
+	loopPipeline;
 	bloom;
+	loopSceneBloom;
 	loopBloom;
 	waves = [];
 	waveData = Array.from({ length: WAVES }, () => new THREE.Vector4());
@@ -13510,6 +13512,7 @@ var FXPost = class {
 	flashColor = uniform(new THREE.Color(1, 1, 1));
 	time = uniform(0);
 	vignette = uniform(.55);
+	loopBloomUsed = false;
 	clean = false;
 	zoom = 0;
 	aberration = 0;
@@ -13518,16 +13521,35 @@ var FXPost = class {
 	blinkAmount = 0;
 	impactFrames = 0;
 	scenePass;
+	loopScenePass;
 	constructor(renderer, scene, camera, opts = {}) {
 		this.renderer = renderer;
 		this.camera = camera;
 		this.waveU = uniformArray(this.waveData, "vec4");
 		this.scenePass = pass(scene, camera);
-		this.scenePass.setMRT(mrt({
+		this.loopScenePass = pass(scene, camera);
+		this.loopScenePass.setMRT(mrt({
 			output,
 			emissive
 		}));
-		const tex = this.scenePass.getTextureNode("output");
+		const plain = this.chain(this.scenePass, opts);
+		const looped = this.chain(this.loopScenePass, opts);
+		this.bloom = plain.bloom;
+		this.loopSceneBloom = looped.bloom;
+		for (const k of [
+			"strength",
+			"radius",
+			"threshold",
+			"smoothWidth"
+		]) looped.bloom[k] = plain.bloom[k];
+		this.loopBloom = bloom(this.loopScenePass.getTextureNode("emissive"), 0, .5, 0);
+		this.pipeline = new THREE.RenderPipeline(renderer);
+		this.pipeline.outputNode = this.finish(plain.compressed.rgb.add(plain.bloom.rgb));
+		this.loopPipeline = new THREE.RenderPipeline(renderer);
+		this.loopPipeline.outputNode = this.finish(looped.compressed.rgb.add(looped.bloom.rgb).add(this.loopBloom.rgb));
+	}
+	chain(scenePass, opts) {
+		const tex = scenePass.getTextureNode("output");
 		const warped = Fn(() => {
 			const p = uv().toVar();
 			const offset = vec2(0).toVar();
@@ -13541,13 +13563,19 @@ var FXPost = class {
 		})();
 		const zoomed = Fn(() => {
 			const acc = vec3(0).toVar();
-			const dir = warped.sub(this.zoomCenter);
-			for (let i = 0; i < 8; i++) {
-				const s = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
-				const ca = s.sub(.5).mul(this.chroma);
-				acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
-			}
-			return acc.div(8);
+			If(this.zoomAmount.greaterThan(0), () => {
+				const dir = warped.sub(this.zoomCenter);
+				for (let i = 0; i < 8; i++) {
+					const s = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
+					const ca = s.sub(.5).mul(this.chroma);
+					acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
+				}
+				acc.divAssign(8);
+			}).Else(() => {
+				const ca = warped.sub(.5).mul(this.chroma);
+				acc.assign(vec3(tex.sample(warped.add(ca)).r, tex.sample(warped).g, tex.sample(warped.sub(ca)).b));
+			});
+			return acc;
 		})();
 		const compressed = Fn(() => {
 			const c = zoomed.toVar();
@@ -13557,10 +13585,14 @@ var FXPost = class {
 			const target = float(knee).add(e.div(e.div(knee).add(1)));
 			return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
 		})();
-		this.bloom = bloom(compressed, opts.strength ?? .8, opts.radius ?? .25, opts.threshold ?? .45);
-		this.loopBloom = bloom(this.scenePass.getTextureNode("emissive"), 0, .5, 0);
-		const out = Fn(() => {
-			const c = compressed.rgb.add(this.bloom.rgb).add(this.loopBloom.rgb).toVar();
+		return {
+			compressed,
+			bloom: bloom(compressed, opts.strength ?? .8, opts.radius ?? .25, opts.threshold ?? .45)
+		};
+	}
+	finish(sum) {
+		return Fn(() => {
+			const c = sum.toVar();
 			c.addAssign(this.flashColor.mul(this.flashAmount));
 			const lum = dot(c, vec3(.299, .587, .114));
 			const neg = vec3(1).sub(clamp(c, 0, 1)).mul(1.4);
@@ -13571,8 +13603,6 @@ var FXPost = class {
 			c.mulAssign(float(1).sub(dot(q, q).mul(this.vignette)));
 			return vec4(c, 1);
 		})();
-		this.pipeline = new THREE.RenderPipeline(renderer);
-		this.pipeline.outputNode = out;
 	}
 	setLoopBloom(b) {
 		this.loopBloom.strength.value = b ? b.strength : 0;
@@ -13581,8 +13611,17 @@ var FXPost = class {
 			this.loopBloom.threshold.value = b.threshold;
 		}
 	}
+	setSamples(samples) {
+		for (const p of [this.scenePass, this.loopScenePass]) {
+			if (p.options.samples === samples) continue;
+			p.options.samples = samples;
+			p.renderTarget.samples = samples;
+			p.renderTarget.dispose();
+		}
+	}
 	setScale(scale) {
 		this.scenePass.setResolutionScale(scale);
+		this.loopScenePass.setResolutionScale(scale);
 	}
 	flashTint(c) {
 		this.flashColor.value.copy(c);
@@ -13638,17 +13677,21 @@ var FXPost = class {
 		this.blinkT = Math.max(this.blinkT - realDt, 0);
 	}
 	render() {
-		this.pipeline.render();
+		(this.loopBloomUsed ? this.loopPipeline : this.pipeline).render();
 	}
 	setCamera(camera) {
 		this.camera = camera;
 		this.scenePass.camera = camera;
+		this.loopScenePass.camera = camera;
 	}
 	dispose() {
 		this.bloom.dispose?.();
+		this.loopSceneBloom.dispose?.();
 		this.loopBloom.dispose?.();
 		this.scenePass.dispose();
+		this.loopScenePass.dispose();
 		this.pipeline.dispose();
+		this.loopPipeline.dispose();
 	}
 };
 //#endregion
@@ -14337,13 +14380,16 @@ var FXSystem = class {
 		}
 	}
 	add(...defs) {
-		for (const d of defs) if (d.kind === "loop") this.loopDefs.set(d.id, d);
-		else this.defs.set(d.id, d);
+		for (const d of defs) if (d.kind === "loop") {
+			this.loopDefs.set(d.id, d);
+			if (d.bloom && this.post) this.post.loopBloomUsed = true;
+		} else this.defs.set(d.id, d);
 		return this;
 	}
 	spawn(effect, opts = {}) {
 		const def = typeof effect === "string" ? this.loopDefs.get(effect) : effect;
 		if (!def) throw new Error(`rollshade: unknown loop "${effect}"`);
+		if (def.bloom && this.post) this.post.loopBloomUsed = true;
 		if (def.object && !opts.object) throw new Error(`rollshade: "${def.id}" needs { object }`);
 		const instance = def.create({
 			scene: this.scene,
@@ -14662,7 +14708,7 @@ function effect(recipe, element = "fire", options = {}) {
 }
 //#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.1.1";
+var VERSION = "0.1.2";
 function defineEffect(def) {
 	return def;
 }

@@ -1,10 +1,10 @@
-// Rollshade FX runtime 0.1.1 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.1.2 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.1.1';
+export declare const VERSION: '0.1.2';
 
 /** A fixed point, or an Object3D whose world position is read every frame. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;

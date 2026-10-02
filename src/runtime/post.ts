@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, clamp, dot, emissive, exp, float, length, max, mix, mrt, normalize, output, pass, select, smoothstep, uniform, uniformArray, uv, vec2, vec3, vec4 } from 'three/tsl';
+import { Fn, If, clamp, dot, emissive, exp, float, length, max, mix, mrt, normalize, output, pass, select, smoothstep, uniform, uniformArray, uv, vec2, vec3, vec4 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 
 type N = any;
@@ -15,9 +15,11 @@ interface Wave {
 }
 
 export class FXPost {
-  readonly pipeline: THREE.RenderPipeline;
+  private readonly pipeline: THREE.RenderPipeline;
+  private readonly loopPipeline: THREE.RenderPipeline;
   readonly bloom: N;
-  readonly loopBloom: N;
+  private readonly loopSceneBloom: N;
+  private readonly loopBloom: N;
   private waves: Wave[] = [];
   private waveData = Array.from({ length: WAVES }, () => new THREE.Vector4());
   private waveU: N;
@@ -30,6 +32,7 @@ export class FXPost {
   private flashColor = uniform(new THREE.Color(1, 1, 1));
   private time = uniform(0);
   private vignette = uniform(0.55);
+  loopBloomUsed = false;
   clean = false;
   zoom = 0;
   aberration = 0;
@@ -38,6 +41,7 @@ export class FXPost {
   blinkAmount = 0;
   impactFrames = 0;
   private scenePass: N;
+  private loopScenePass: N;
 
   constructor(
     private renderer: THREE.WebGPURenderer,
@@ -47,8 +51,22 @@ export class FXPost {
   ) {
     this.waveU = uniformArray(this.waveData, 'vec4');
     this.scenePass = pass(scene, camera);
-    this.scenePass.setMRT(mrt({ output, emissive }));
-    const tex: N = this.scenePass.getTextureNode('output');
+    this.loopScenePass = pass(scene, camera);
+    this.loopScenePass.setMRT(mrt({ output, emissive }));
+    const plain = this.chain(this.scenePass, opts);
+    const looped = this.chain(this.loopScenePass, opts);
+    this.bloom = plain.bloom;
+    this.loopSceneBloom = looped.bloom;
+    for (const k of ['strength', 'radius', 'threshold', 'smoothWidth']) looped.bloom[k] = plain.bloom[k];
+    this.loopBloom = bloom(this.loopScenePass.getTextureNode('emissive'), 0, 0.5, 0);
+    this.pipeline = new THREE.RenderPipeline(renderer);
+    this.pipeline.outputNode = this.finish(plain.compressed.rgb.add(plain.bloom.rgb));
+    this.loopPipeline = new THREE.RenderPipeline(renderer);
+    this.loopPipeline.outputNode = this.finish(looped.compressed.rgb.add(looped.bloom.rgb).add(this.loopBloom.rgb));
+  }
+
+  private chain(scenePass: N, opts: { strength?: number; radius?: number; threshold?: number }): { compressed: N; bloom: N } {
+    const tex: N = scenePass.getTextureNode('output');
     const warped = Fn(() => {
       const p: N = uv().toVar();
       const offset: N = vec2(0).toVar();
@@ -63,13 +81,19 @@ export class FXPost {
     })();
     const zoomed = Fn(() => {
       const acc: N = vec3(0).toVar();
-      const dir: N = warped.sub(this.zoomCenter);
-      for (let i = 0; i < 8; i++) {
-        const s: N = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
-        const ca: N = s.sub(0.5).mul(this.chroma);
-        acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
-      }
-      return acc.div(8);
+      If(this.zoomAmount.greaterThan(0), () => {
+        const dir: N = warped.sub(this.zoomCenter);
+        for (let i = 0; i < 8; i++) {
+          const s: N = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
+          const ca: N = s.sub(0.5).mul(this.chroma);
+          acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
+        }
+        acc.divAssign(8);
+      }).Else(() => {
+        const ca: N = warped.sub(0.5).mul(this.chroma);
+        acc.assign(vec3(tex.sample(warped.add(ca)).r, tex.sample(warped).g, tex.sample(warped.sub(ca)).b));
+      });
+      return acc;
     })();
     const compressed = Fn(() => {
       const c: N = zoomed.toVar();
@@ -79,10 +103,12 @@ export class FXPost {
       const target: N = float(knee).add(e.div(e.div(knee).add(1)));
       return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
     })();
-    this.bloom = bloom(compressed, opts.strength ?? 0.8, opts.radius ?? 0.25, opts.threshold ?? 0.45);
-    this.loopBloom = bloom(this.scenePass.getTextureNode('emissive'), 0, 0.5, 0);
-    const out = Fn(() => {
-      const c: N = compressed.rgb.add(this.bloom.rgb).add(this.loopBloom.rgb).toVar();
+    return { compressed, bloom: bloom(compressed, opts.strength ?? 0.8, opts.radius ?? 0.25, opts.threshold ?? 0.45) };
+  }
+
+  private finish(sum: N): N {
+    return Fn(() => {
+      const c: N = sum.toVar();
       c.addAssign(this.flashColor.mul(this.flashAmount));
       const lum: N = dot(c, vec3(0.299, 0.587, 0.114));
       const neg: N = vec3(1).sub(clamp(c, 0, 1)).mul(1.4);
@@ -93,8 +119,6 @@ export class FXPost {
       c.mulAssign(float(1).sub(dot(q, q).mul(this.vignette)));
       return vec4(c, 1);
     })();
-    this.pipeline = new THREE.RenderPipeline(renderer);
-    this.pipeline.outputNode = out;
   }
 
   setLoopBloom(b: { strength: number; radius: number; threshold: number } | null): void {
@@ -105,8 +129,18 @@ export class FXPost {
     }
   }
 
+  setSamples(samples: number): void {
+    for (const p of [this.scenePass, this.loopScenePass]) {
+      if (p.options.samples === samples) continue;
+      p.options.samples = samples;
+      p.renderTarget.samples = samples;
+      p.renderTarget.dispose();
+    }
+  }
+
   setScale(scale: number): void {
     this.scenePass.setResolutionScale(scale);
+    this.loopScenePass.setResolutionScale(scale);
   }
 
   flashTint(c: THREE.Color): void {
@@ -161,18 +195,22 @@ export class FXPost {
   }
 
   render(): void {
-    this.pipeline.render();
+    (this.loopBloomUsed ? this.loopPipeline : this.pipeline).render();
   }
 
   setCamera(camera: THREE.Camera): void {
     this.camera = camera;
     this.scenePass.camera = camera;
+    this.loopScenePass.camera = camera;
   }
 
   dispose(): void {
     this.bloom.dispose?.();
+    this.loopSceneBloom.dispose?.();
     this.loopBloom.dispose?.();
     this.scenePass.dispose();
+    this.loopScenePass.dispose();
     this.pipeline.dispose();
+    this.loopPipeline.dispose();
   }
 }
