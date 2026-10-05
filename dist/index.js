@@ -1,4 +1,4 @@
-// Rollshade FX runtime 0.2.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.3.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
@@ -12174,6 +12174,245 @@ var helpers = {
 	surfacePoints
 };
 //#endregion
+//#region src/runtime/post.ts
+var WAVES = 8;
+var glowing = /* @__PURE__ */ new WeakSet();
+var glowFlag = uniform(0).onObjectUpdate(({ object }) => {
+	if (!object) return 0;
+	for (let o = object; o; o = o.parent) if (glowing.has(o)) return 1;
+	return object.userData.rollshadeStatus ? 2 : 0;
+});
+var glow = vec4(select(glowFlag.equal(1), output.rgb, select(glowFlag.equal(2), emissive, vec3(0))), output.a);
+function scenePassOf(scene, camera, outputs) {
+	const p = pass(scene, camera);
+	if (Object.keys(outputs).length === 1) return p;
+	const targets = mrt(outputs);
+	if (outputs.glow) targets.setBlendMode("glow", new THREE.BlendMode(THREE.MaterialBlending));
+	p.setMRT(targets);
+	return p;
+}
+var FXPost = class {
+	renderer;
+	camera;
+	pipeline;
+	loopPipeline;
+	bloom;
+	loopSceneBloom;
+	loopBloom;
+	waves = [];
+	waveData = Array.from({ length: WAVES }, () => new THREE.Vector4());
+	waveU;
+	aspect = uniform(1);
+	zoomCenter = uniform(new THREE.Vector2(.5, .5));
+	zoomAmount = uniform(0);
+	chroma = uniform(0);
+	frameMode = uniform(0);
+	flashAmount = uniform(0);
+	flashColor = uniform(new THREE.Color(1, 1, 1));
+	time = uniform(0);
+	vignette = uniform(.55);
+	scope;
+	loopBloomUsed = false;
+	clean = false;
+	zoom = 0;
+	aberration = 0;
+	flash = 0;
+	blinkT = 0;
+	blinkAmount = 0;
+	impactFrames = 0;
+	scenePass;
+	loopScenePass;
+	constructor(renderer, scene, camera, opts = {}) {
+		this.renderer = renderer;
+		this.camera = camera;
+		this.waveU = uniformArray(this.waveData, "vec4");
+		this.scope = opts.bloom ?? "fx";
+		const fx = this.scope === "fx" ? { glow } : {};
+		this.scenePass = scenePassOf(scene, camera, {
+			output,
+			...fx
+		});
+		this.loopScenePass = scenePassOf(scene, camera, {
+			output,
+			emissive,
+			...fx
+		});
+		const plain = this.chain(this.scenePass, opts);
+		const looped = this.chain(this.loopScenePass, opts);
+		this.bloom = plain.bloom;
+		this.loopSceneBloom = looped.bloom;
+		for (const k of [
+			"strength",
+			"radius",
+			"threshold",
+			"smoothWidth"
+		]) looped.bloom[k] = plain.bloom[k];
+		this.loopBloom = bloom(this.loopScenePass.getTextureNode("emissive"), 0, .5, 0);
+		this.pipeline = new THREE.RenderPipeline(renderer);
+		this.pipeline.outputNode = this.finish(plain.compressed.rgb.add(plain.bloom.rgb));
+		this.loopPipeline = new THREE.RenderPipeline(renderer);
+		this.loopPipeline.outputNode = this.finish(looped.compressed.rgb.add(looped.bloom.rgb).add(this.loopBloom.rgb));
+	}
+	chain(scenePass, opts) {
+		const warped = Fn(() => {
+			const p = uv().toVar();
+			const offset = vec2(0).toVar();
+			for (let i = 0; i < WAVES; i++) {
+				const w = this.waveU.element(i);
+				const dv = p.sub(w.xy).mul(vec2(this.aspect, 1));
+				const x = length(dv).sub(w.z).div(max(w.z.mul(.35), .01));
+				offset.addAssign(normalize(dv.add(1e-5)).mul(exp(x.mul(x).negate())).mul(w.w).div(vec2(this.aspect, 1)));
+			}
+			return p.sub(offset);
+		})();
+		const look = (tex, chroma) => Fn(() => {
+			const acc = vec3(0).toVar();
+			If(this.zoomAmount.greaterThan(0), () => {
+				const dir = warped.sub(this.zoomCenter);
+				for (let i = 0; i < 8; i++) {
+					const s = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
+					const ca = s.sub(.5).mul(chroma);
+					acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
+				}
+				acc.divAssign(8);
+			}).Else(() => {
+				const ca = warped.sub(.5).mul(chroma);
+				acc.assign(vec3(tex.sample(warped.add(ca)).r, tex.sample(warped).g, tex.sample(warped.sub(ca)).b));
+			});
+			return acc;
+		})();
+		const compress = (zoomed) => Fn(() => {
+			const c = zoomed.toVar();
+			const l = max(max(c.r, c.g), c.b);
+			const knee = 1.6;
+			const e = max(l.sub(knee), 0);
+			const target = float(knee).add(e.div(e.div(knee).add(1)));
+			return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
+		})();
+		const compressed = compress(look(scenePass.getTextureNode("output"), this.chroma));
+		const source = this.scope === "fx" ? compress(look(scenePass.getTextureNode("glow"), this.chroma)) : compressed;
+		return {
+			compressed,
+			bloom: bloom(source, opts.strength ?? .8, opts.radius ?? .25, opts.threshold ?? .45)
+		};
+	}
+	finish(sum) {
+		return Fn(() => {
+			const c = sum.toVar();
+			c.addAssign(this.flashColor.mul(this.flashAmount));
+			const lum = dot(c, vec3(.299, .587, .114));
+			const neg = vec3(1).sub(clamp(c, 0, 1)).mul(1.4);
+			const mono = vec3(smoothstep(.25, .4, lum)).mul(2.2);
+			c.assign(mix(c, neg, this.frameMode.equal(1).select(1, 0)));
+			c.assign(mix(c, mono, this.frameMode.equal(2).select(1, 0)));
+			const q = uv().sub(.5);
+			c.mulAssign(float(1).sub(dot(q, q).mul(this.vignette)));
+			return vec4(c, 1);
+		})();
+	}
+	setLoopBloom(b) {
+		this.loopBloom.strength.value = b ? b.strength : 0;
+		if (b) {
+			this.loopBloom.radius.value = b.radius;
+			this.loopBloom.threshold.value = b.threshold;
+		}
+	}
+	setSamples(samples) {
+		for (const p of [this.scenePass, this.loopScenePass]) {
+			if (p.options.samples === samples) continue;
+			p.options.samples = samples;
+			p.renderTarget.samples = samples;
+			p.renderTarget.dispose();
+		}
+	}
+	setScale(scale) {
+		this.scenePass.setResolutionScale(scale);
+		this.loopScenePass.setResolutionScale(scale);
+	}
+	flashTint(c) {
+		this.flashColor.value.copy(c);
+	}
+	wave(pos, radius, dur, strength) {
+		if (this.waves.length >= WAVES) this.waves.shift();
+		this.waves.push({
+			pos: pos.clone(),
+			radius,
+			dur,
+			age: 0,
+			strength
+		});
+	}
+	zoomAt(pos, amount) {
+		const s = pos.clone().project(this.camera);
+		this.zoomCenter.value.set(s.x * .5 + .5, s.y * .5 + .5);
+		this.zoom = Math.max(this.zoom, amount);
+	}
+	update(dt, realDt) {
+		const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+		this.aspect.value = size.x / Math.max(size.y, 1);
+		this.time.value = (this.time.value + realDt) % 100;
+		const cam = this.camera;
+		const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+		for (const w of this.waves) w.age += dt;
+		this.waves = this.waves.filter((w) => w.age < w.dur);
+		for (let i = 0; i < WAVES; i++) {
+			const w = this.waves[i];
+			const v = this.waveData[i];
+			if (!w) {
+				v.set(0, 0, .5, 0);
+				continue;
+			}
+			const k = w.age / w.dur;
+			const r = w.radius * (1 - Math.pow(1 - k, 3));
+			const c = w.pos.clone().project(cam);
+			const edge = w.pos.clone().addScaledVector(right, Math.max(r, .001)).project(cam);
+			const rs = Math.abs(edge.x - c.x) * .5 * this.aspect.value;
+			v.set(c.x * .5 + .5, c.y * .5 + .5, Math.max(rs, .001), c.z < 1 ? w.strength * .02 * Math.pow(1 - k, 2) : 0);
+		}
+		this.zoomAmount.value = this.clean ? 0 : this.zoom * .18;
+		this.chroma.value = this.clean ? 0 : .002 + this.aberration * .012;
+		this.flashAmount.value = this.clean ? 0 : Math.max(Math.min(this.flash, .35), this.blinkT > 0 ? this.blinkAmount : 0);
+		this.frameMode.value = this.clean ? 0 : this.impactFrames > .06 ? 1 : this.impactFrames > 0 ? 2 : 0;
+		this.vignette.value = this.clean ? 0 : .55;
+		if (this.clean) for (const v of this.waveData) v.w = 0;
+		const decay = Math.exp(-realDt * 10);
+		this.zoom *= decay;
+		this.aberration *= decay;
+		this.flash *= Math.exp(-realDt * 14);
+		this.impactFrames = Math.max(this.impactFrames - realDt, 0);
+		this.blinkT = Math.max(this.blinkT - realDt, 0);
+	}
+	render() {
+		(this.loopBloomUsed ? this.loopPipeline : this.pipeline).render();
+	}
+	warm() {
+		const r = this.renderer;
+		const { toneMapping, outputColorSpace } = r;
+		r.toneMapping = THREE.NoToneMapping;
+		r.outputColorSpace = THREE.ColorManagement.workingColorSpace;
+		try {
+			(this.loopBloomUsed ? this.loopScenePass : this.scenePass).updateBefore({ renderer: r });
+		} finally {
+			r.toneMapping = toneMapping;
+			r.outputColorSpace = outputColorSpace;
+		}
+	}
+	setCamera(camera) {
+		this.camera = camera;
+		this.scenePass.camera = camera;
+		this.loopScenePass.camera = camera;
+	}
+	dispose() {
+		this.bloom.dispose?.();
+		this.loopSceneBloom.dispose?.();
+		this.loopBloom.dispose?.();
+		this.scenePass.dispose();
+		this.loopScenePass.dispose();
+		this.pipeline.dispose();
+		this.loopPipeline.dispose();
+	}
+};
+//#endregion
 //#region src/runtime/status.ts
 var TAG = "__rollshadeStatus";
 var keepers = /* @__PURE__ */ new Map();
@@ -12235,6 +12474,8 @@ var R = {
 var meshKind = (mesh) => `${mesh.isSkinnedMesh ? "skin" : "rigid"}|${Object.keys(mesh.geometry?.morphAttributes ?? {}).join(",")}`;
 var surfaces = /* @__PURE__ */ new WeakMap();
 var shells = /* @__PURE__ */ new Map();
+var held = /* @__PURE__ */ new Set();
+var shellKey = /* @__PURE__ */ new WeakMap();
 function release(material) {
 	for (const m of keepers.values()) if (m === material) return;
 	material.dispose();
@@ -12510,6 +12751,8 @@ var StatusRun = class {
 	listeners = /* @__PURE__ */ new Map();
 	stopping = false;
 	fullSent = false;
+	left = Infinity;
+	fade;
 	alive = true;
 	done;
 	resolve;
@@ -12536,6 +12779,8 @@ var StatusRun = class {
 		});
 		this.ctx.params = {};
 		this.value = recipe.initial ?? 0;
+		this.fade = opts.fade ?? .4;
+		if (opts.lasts !== void 0 && !recipe.autoEnd) this.lasts = opts.lasts;
 		this.to(recipe.autoEnd ? recipe.goal ?? 0 : opts.progress ?? recipe.goal ?? 1, opts.duration ?? recipe.duration);
 		if (recipe.shell) for (const mesh of layer.meshes) {
 			const key = `${name}|${meshKind(mesh)}`;
@@ -12548,6 +12793,8 @@ var StatusRun = class {
 			}
 			const copy = helpers.overlay(mesh, mat);
 			tag(copy);
+			glowing.add(copy);
+			shellKey.set(copy, key);
 			bind(copy, {
 				layer,
 				run: this,
@@ -12564,6 +12811,12 @@ var StatusRun = class {
 	}
 	set progress(v) {
 		this.to(v, 0);
+	}
+	get lasts() {
+		return this.left;
+	}
+	set lasts(seconds) {
+		this.left = Math.max(seconds, 0);
 	}
 	to(progress, seconds = .5) {
 		this.target = clamp01(progress);
@@ -12589,7 +12842,7 @@ var StatusRun = class {
 	impact(point) {
 		if (this.alive && !this.stopping) this.recipe.impact?.(this, point);
 	}
-	stop(fade = .4) {
+	stop(fade = this.fade) {
 		if (this.stopping || !this.alive) return;
 		this.stopping = true;
 		this.recipe.stopped?.(this);
@@ -12597,6 +12850,7 @@ var StatusRun = class {
 	}
 	step(dt) {
 		if (!this.alive) return;
+		if (this.left !== Infinity && !this.stopping && (this.left -= dt) <= 0) this.stop();
 		const d = this.target - this.value;
 		const move = this.rate === Infinity ? Math.abs(d) : this.rate * dt;
 		this.value = Math.abs(d) <= move ? this.target : this.value + Math.sign(d) * move;
@@ -12617,7 +12871,9 @@ var StatusRun = class {
 		this.handle.stop();
 		for (const o of this.overlays) {
 			o.removeFromParent();
-			o.dispose();
+			const key = shellKey.get(o);
+			if (held.has(key)) o.dispose();
+			else held.add(key);
 		}
 		this.layer.runs.delete(this);
 		this.emit("end");
@@ -15269,211 +15525,6 @@ function clampParams(recipe, params) {
 	return out;
 }
 //#endregion
-//#region src/runtime/post.ts
-var WAVES = 8;
-var FXPost = class {
-	renderer;
-	camera;
-	pipeline;
-	loopPipeline;
-	bloom;
-	loopSceneBloom;
-	loopBloom;
-	waves = [];
-	waveData = Array.from({ length: WAVES }, () => new THREE.Vector4());
-	waveU;
-	aspect = uniform(1);
-	zoomCenter = uniform(new THREE.Vector2(.5, .5));
-	zoomAmount = uniform(0);
-	chroma = uniform(0);
-	frameMode = uniform(0);
-	flashAmount = uniform(0);
-	flashColor = uniform(new THREE.Color(1, 1, 1));
-	time = uniform(0);
-	vignette = uniform(.55);
-	loopBloomUsed = false;
-	clean = false;
-	zoom = 0;
-	aberration = 0;
-	flash = 0;
-	blinkT = 0;
-	blinkAmount = 0;
-	impactFrames = 0;
-	scenePass;
-	loopScenePass;
-	constructor(renderer, scene, camera, opts = {}) {
-		this.renderer = renderer;
-		this.camera = camera;
-		this.waveU = uniformArray(this.waveData, "vec4");
-		this.scenePass = pass(scene, camera);
-		this.loopScenePass = pass(scene, camera);
-		this.loopScenePass.setMRT(mrt({
-			output,
-			emissive
-		}));
-		const plain = this.chain(this.scenePass, opts);
-		const looped = this.chain(this.loopScenePass, opts);
-		this.bloom = plain.bloom;
-		this.loopSceneBloom = looped.bloom;
-		for (const k of [
-			"strength",
-			"radius",
-			"threshold",
-			"smoothWidth"
-		]) looped.bloom[k] = plain.bloom[k];
-		this.loopBloom = bloom(this.loopScenePass.getTextureNode("emissive"), 0, .5, 0);
-		this.pipeline = new THREE.RenderPipeline(renderer);
-		this.pipeline.outputNode = this.finish(plain.compressed.rgb.add(plain.bloom.rgb));
-		this.loopPipeline = new THREE.RenderPipeline(renderer);
-		this.loopPipeline.outputNode = this.finish(looped.compressed.rgb.add(looped.bloom.rgb).add(this.loopBloom.rgb));
-	}
-	chain(scenePass, opts) {
-		const tex = scenePass.getTextureNode("output");
-		const warped = Fn(() => {
-			const p = uv().toVar();
-			const offset = vec2(0).toVar();
-			for (let i = 0; i < WAVES; i++) {
-				const w = this.waveU.element(i);
-				const dv = p.sub(w.xy).mul(vec2(this.aspect, 1));
-				const x = length(dv).sub(w.z).div(max(w.z.mul(.35), .01));
-				offset.addAssign(normalize(dv.add(1e-5)).mul(exp(x.mul(x).negate())).mul(w.w).div(vec2(this.aspect, 1)));
-			}
-			return p.sub(offset);
-		})();
-		const zoomed = Fn(() => {
-			const acc = vec3(0).toVar();
-			If(this.zoomAmount.greaterThan(0), () => {
-				const dir = warped.sub(this.zoomCenter);
-				for (let i = 0; i < 8; i++) {
-					const s = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
-					const ca = s.sub(.5).mul(this.chroma);
-					acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
-				}
-				acc.divAssign(8);
-			}).Else(() => {
-				const ca = warped.sub(.5).mul(this.chroma);
-				acc.assign(vec3(tex.sample(warped.add(ca)).r, tex.sample(warped).g, tex.sample(warped.sub(ca)).b));
-			});
-			return acc;
-		})();
-		const compressed = Fn(() => {
-			const c = zoomed.toVar();
-			const l = max(max(c.r, c.g), c.b);
-			const knee = 1.6;
-			const e = max(l.sub(knee), 0);
-			const target = float(knee).add(e.div(e.div(knee).add(1)));
-			return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
-		})();
-		return {
-			compressed,
-			bloom: bloom(compressed, opts.strength ?? .8, opts.radius ?? .25, opts.threshold ?? .45)
-		};
-	}
-	finish(sum) {
-		return Fn(() => {
-			const c = sum.toVar();
-			c.addAssign(this.flashColor.mul(this.flashAmount));
-			const lum = dot(c, vec3(.299, .587, .114));
-			const neg = vec3(1).sub(clamp(c, 0, 1)).mul(1.4);
-			const mono = vec3(smoothstep(.25, .4, lum)).mul(2.2);
-			c.assign(mix(c, neg, this.frameMode.equal(1).select(1, 0)));
-			c.assign(mix(c, mono, this.frameMode.equal(2).select(1, 0)));
-			const q = uv().sub(.5);
-			c.mulAssign(float(1).sub(dot(q, q).mul(this.vignette)));
-			return vec4(c, 1);
-		})();
-	}
-	setLoopBloom(b) {
-		this.loopBloom.strength.value = b ? b.strength : 0;
-		if (b) {
-			this.loopBloom.radius.value = b.radius;
-			this.loopBloom.threshold.value = b.threshold;
-		}
-	}
-	setSamples(samples) {
-		for (const p of [this.scenePass, this.loopScenePass]) {
-			if (p.options.samples === samples) continue;
-			p.options.samples = samples;
-			p.renderTarget.samples = samples;
-			p.renderTarget.dispose();
-		}
-	}
-	setScale(scale) {
-		this.scenePass.setResolutionScale(scale);
-		this.loopScenePass.setResolutionScale(scale);
-	}
-	flashTint(c) {
-		this.flashColor.value.copy(c);
-	}
-	wave(pos, radius, dur, strength) {
-		if (this.waves.length >= WAVES) this.waves.shift();
-		this.waves.push({
-			pos: pos.clone(),
-			radius,
-			dur,
-			age: 0,
-			strength
-		});
-	}
-	zoomAt(pos, amount) {
-		const s = pos.clone().project(this.camera);
-		this.zoomCenter.value.set(s.x * .5 + .5, s.y * .5 + .5);
-		this.zoom = Math.max(this.zoom, amount);
-	}
-	update(dt, realDt) {
-		const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-		this.aspect.value = size.x / Math.max(size.y, 1);
-		this.time.value = (this.time.value + realDt) % 100;
-		const cam = this.camera;
-		const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
-		for (const w of this.waves) w.age += dt;
-		this.waves = this.waves.filter((w) => w.age < w.dur);
-		for (let i = 0; i < WAVES; i++) {
-			const w = this.waves[i];
-			const v = this.waveData[i];
-			if (!w) {
-				v.set(0, 0, .5, 0);
-				continue;
-			}
-			const k = w.age / w.dur;
-			const r = w.radius * (1 - Math.pow(1 - k, 3));
-			const c = w.pos.clone().project(cam);
-			const edge = w.pos.clone().addScaledVector(right, Math.max(r, .001)).project(cam);
-			const rs = Math.abs(edge.x - c.x) * .5 * this.aspect.value;
-			v.set(c.x * .5 + .5, c.y * .5 + .5, Math.max(rs, .001), c.z < 1 ? w.strength * .02 * Math.pow(1 - k, 2) : 0);
-		}
-		this.zoomAmount.value = this.clean ? 0 : this.zoom * .18;
-		this.chroma.value = this.clean ? 0 : .002 + this.aberration * .012;
-		this.flashAmount.value = this.clean ? 0 : Math.max(Math.min(this.flash, .35), this.blinkT > 0 ? this.blinkAmount : 0);
-		this.frameMode.value = this.clean ? 0 : this.impactFrames > .06 ? 1 : this.impactFrames > 0 ? 2 : 0;
-		this.vignette.value = this.clean ? 0 : .55;
-		if (this.clean) for (const v of this.waveData) v.w = 0;
-		const decay = Math.exp(-realDt * 10);
-		this.zoom *= decay;
-		this.aberration *= decay;
-		this.flash *= Math.exp(-realDt * 14);
-		this.impactFrames = Math.max(this.impactFrames - realDt, 0);
-		this.blinkT = Math.max(this.blinkT - realDt, 0);
-	}
-	render() {
-		(this.loopBloomUsed ? this.loopPipeline : this.pipeline).render();
-	}
-	setCamera(camera) {
-		this.camera = camera;
-		this.scenePass.camera = camera;
-		this.loopScenePass.camera = camera;
-	}
-	dispose() {
-		this.bloom.dispose?.();
-		this.loopSceneBloom.dispose?.();
-		this.loopBloom.dispose?.();
-		this.scenePass.dispose();
-		this.loopScenePass.dispose();
-		this.pipeline.dispose();
-		this.loopPipeline.dispose();
-	}
-};
-//#endregion
 //#region src/runtime/scheduler.ts
 var Scheduler = class {
 	time = 0;
@@ -15917,6 +15968,8 @@ var BUDGET = {
 var NEAR = nearFade.value.clone();
 var FLOOR = sizeFloor.value;
 var WARM_STEPS = 8;
+var SETTLE = 2;
+var RAISE_WAIT = 3;
 var PRESETS = {
 	high: [1, 1],
 	medium: [.7, .75],
@@ -16023,8 +16076,10 @@ var FXSystem = class {
 	frameEma = 1 / 60;
 	over = 0;
 	under = 0;
-	raiseWait = 3;
+	raiseWait = RAISE_WAIT;
 	sinceRaise = 99;
+	sinceDrop = 99;
+	settle = SETTLE;
 	resolution = null;
 	frameBudget;
 	disposed = false;
@@ -16042,6 +16097,7 @@ var FXSystem = class {
 		this.photosensitive = opts.photosensitive ?? false;
 		this.impactFrames = opts.impactFrames ?? false;
 		this.root.name = "rollshade-fx";
+		glowing.add(this.root);
 		this.scene.add(this.root);
 		const budget = {
 			...BUDGET,
@@ -16106,6 +16162,7 @@ var FXSystem = class {
 		this.preset = preset;
 		if (preset === "auto") {
 			this.autoQuality = true;
+			this.calm();
 			return;
 		}
 		this.autoQuality = false;
@@ -16122,6 +16179,11 @@ var FXSystem = class {
 			const ratio = Math.round((min + (max - min) * Math.min(Math.max((this.level - .3) / .7, 0), 1)) * 8) / 8;
 			if (Math.abs(this.renderer.getPixelRatio() - ratio) > .001) this.renderer.setPixelRatio(ratio);
 		}
+	}
+	calm() {
+		this.settle = SETTLE;
+		this.frameEma = this.frameBudget;
+		this.over = this.under = 0;
 	}
 	get maxScreenSize() {
 		return this.screenSize;
@@ -16147,19 +16209,27 @@ var FXSystem = class {
 		} else if (cam.isOrthographicCamera) orthoHalf.value = (cam.top - cam.bottom) / (2 * cam.zoom);
 	}
 	adapt(frame) {
+		if (this.settle > 0) {
+			this.settle -= frame;
+			return;
+		}
+		frame = Math.min(frame, this.frameBudget * 2);
 		this.frameEma += (frame - this.frameEma) * .12;
 		this.sinceRaise += frame;
+		this.sinceDrop += frame;
 		if (this.frameEma > this.frameBudget * 1.2) {
 			this.over += frame;
 			this.under = 0;
-			if (this.over > .3 && this.level > .3) {
-				if (this.sinceRaise < 5) this.raiseWait = Math.min(this.raiseWait * 2, 20);
+			if (this.over > 1 && this.level > .3) {
+				if (this.sinceRaise < 5) this.raiseWait = Math.min(this.raiseWait * 2, 12);
 				this.quality = this.level - .175;
 				this.over = 0;
+				this.sinceDrop = 0;
 			}
 		} else if (this.frameEma < this.frameBudget * 1.05) {
 			this.under += frame;
 			this.over = 0;
+			if (this.sinceDrop > 15) this.raiseWait = RAISE_WAIT;
 			if (this.under > this.raiseWait && this.level < 1) {
 				this.quality = this.level + .175;
 				this.under = 0;
@@ -16187,6 +16257,7 @@ var FXSystem = class {
 			period: opts.period ?? def.period
 		});
 		if (instance.object && opts.scale) instance.object.scale.multiplyScalar(opts.scale);
+		if (instance.object && !def.object) glowing.add(instance.object);
 		const handle = new LoopHandle(def.id, def, instance, def.object ? void 0 : opts.at, (h) => {
 			this.loops.delete(h);
 			this.syncLoopBloom();
@@ -16242,7 +16313,7 @@ var FXSystem = class {
 		this.activate();
 		return this.statuses.start(target, name, recipe, new FXHandle(`status-${name}`, this), options);
 	}
-	renderAll(roots) {
+	renderAll(roots, warm = false) {
 		const culled = [];
 		for (const root of roots) root.traverse((o) => {
 			if (o.frustumCulled) {
@@ -16250,7 +16321,8 @@ var FXSystem = class {
 				culled.push(o);
 			}
 		});
-		if (this.post) this.post.render();
+		if (warm && this.post) this.post.warm();
+		else if (this.post) this.post.render();
 		else this.renderer.render(this.scene, this.camera);
 		for (const o of culled) o.frustumCulled = true;
 	}
@@ -16259,26 +16331,63 @@ var FXSystem = class {
 			await this.renderer.compileAsync(this.scene, this.camera, null, onProgress && ((e) => onProgress(.9 * e.loaded / Math.max(e.total, 1))));
 			if (this.disposed) return;
 			this.renderAll(roots);
+			this.calm();
 			onProgress?.(1);
 			return;
 		}
 		const meshes = [];
-		for (const root of roots) root.traverse((o) => o.isMesh && o.visible && meshes.push(o));
+		const leaf = (o) => {
+			let inner = false;
+			o.traverse((c) => inner ||= c !== o && c.isMesh);
+			return !inner;
+		};
+		for (const root of roots) root.traverse((o) => o.isMesh && o.visible && leaf(o) && meshes.push(o));
 		const steps = Math.max(Math.min(WARM_STEPS, meshes.length), 1);
 		for (let step = 0; step < steps && !this.disposed; step++) {
 			meshes.forEach((m, i) => m.visible = i % steps === step);
-			this.renderAll(roots);
+			this.renderAll(roots, true);
 			onProgress?.((step + 1) / steps);
 			if (step < steps - 1) await new Promise((r) => setTimeout(r, 0));
 		}
 		for (const m of meshes) m.visible = true;
+		if (!this.disposed) this.post.render();
+		this.calm();
 	}
 	async prewarmStatus(target, names = Object.keys(STATUSES), onProgress) {
-		const runs = names.map((name) => this.status(target, name, {
-			progress: 0,
-			duration: 0
-		}));
-		await this.compile([target], onProgress);
+		const parent = target.parent;
+		const index = parent ? parent.children.indexOf(target) : -1;
+		const visible = target.visible;
+		let borrow = true;
+		for (let o = parent; o; o = o.parent) {
+			if (!o.visible) break;
+			if (o === this.scene) borrow = false;
+		}
+		if (borrow) {
+			this.scene.add(target);
+			target.updateWorldMatrix(false, true);
+		}
+		target.visible = true;
+		const runs = [];
+		try {
+			for (const name of names) runs.push(this.status(target, name, {
+				progress: 0,
+				duration: 0
+			}));
+			await this.compile([target], onProgress);
+		} catch (error) {
+			for (const run of runs) run.finish();
+			throw error;
+		} finally {
+			target.visible = visible;
+			if (borrow) {
+				if (parent) {
+					parent.add(target);
+					parent.children.splice(parent.children.indexOf(target), 1);
+					parent.children.splice(index, 0, target);
+				} else target.removeFromParent();
+				target.updateWorldMatrix(true, true);
+			}
+		}
 		if (this.disposed) return;
 		for (const run of runs) run.finish();
 		this.statuses.update(0, this.scheduler.time);
@@ -16496,10 +16605,1030 @@ function effect(recipe, element = "fire", options = {}) {
 	};
 }
 //#endregion
+//#region src/runtime/moves.ts
+var MOVES = {
+	projectile: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.14,
+		first: .86,
+		last: .86,
+		end: 1.54,
+		perMetre: .07,
+		lastPerMetre: .07,
+		timeline: [[
+			.86,
+			1.14,
+			"first"
+		]]
+	},
+	lance: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.01,
+		first: .47,
+		last: .47,
+		end: .98,
+		perMetre: .04,
+		lastPerMetre: .04,
+		timeline: [[
+			.47,
+			1.01,
+			"first"
+		]]
+	},
+	beam: {
+		distance: 6,
+		hits: 7,
+		hitRange: [7, 7],
+		power: 3.88,
+		first: .4,
+		last: 1.3,
+		end: 1.8,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				.4,
+				.5,
+				"tick"
+			],
+			[
+				.56,
+				.5,
+				"tick"
+			],
+			[
+				.72,
+				.5,
+				"tick"
+			],
+			[
+				.89,
+				.5,
+				"tick"
+			],
+			[
+				1.06,
+				.5,
+				"tick"
+			],
+			[
+				1.22,
+				.5,
+				"tick"
+			],
+			[
+				1.3,
+				.88,
+				"final"
+			]
+		]
+	},
+	explosion: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.98,
+		first: .45,
+		last: .45,
+		end: 1.45,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.45,
+			1.98,
+			"first"
+		]]
+	},
+	pillar: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.58,
+		first: .33,
+		last: .33,
+		end: 1.82,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.33,
+			1.58,
+			"first"
+		]]
+	},
+	meteor: {
+		distance: 6,
+		hits: 4,
+		hitRange: [2, 5],
+		power: 7.69,
+		first: 1.24,
+		last: 2.17,
+		end: 3.17,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				1.24,
+				2.11,
+				"first"
+			],
+			[
+				1.74,
+				1.66,
+				"link"
+			],
+			[
+				1.82,
+				2.02,
+				"link"
+			],
+			[
+				2.17,
+				1.9,
+				"final"
+			]
+		]
+	},
+	nova: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.37,
+		first: .81,
+		last: .81,
+		end: 1.54,
+		perMetre: .02,
+		lastPerMetre: .02,
+		timeline: [[
+			.81,
+			1.37,
+			"first"
+		]]
+	},
+	barrier: {
+		distance: 6,
+		hits: 0,
+		hitRange: [0, 0],
+		power: 0,
+		first: null,
+		last: null,
+		end: 2.91,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: []
+	},
+	shockwave: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.09,
+		first: .85,
+		last: .85,
+		end: 1.35,
+		perMetre: .1,
+		lastPerMetre: .1,
+		timeline: [[
+			.85,
+			1.09,
+			"first"
+		]]
+	},
+	summon: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 2.22,
+		first: 1.36,
+		last: 1.36,
+		end: 1.97,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			1.36,
+			2.22,
+			"first"
+		]]
+	},
+	missiles: {
+		distance: 6,
+		hits: 16,
+		hitRange: [16, 16],
+		power: 4.3,
+		first: 1.75,
+		last: 2.66,
+		end: 3.17,
+		perMetre: .03,
+		lastPerMetre: .05,
+		timeline: [
+			[
+				1.75,
+				.2,
+				"first"
+			],
+			[
+				1.85,
+				.2,
+				"link"
+			],
+			[
+				1.86,
+				.2,
+				"link"
+			],
+			[
+				1.86,
+				.2,
+				"link"
+			],
+			[
+				2.04,
+				.2,
+				"link"
+			],
+			[
+				2.06,
+				.2,
+				"link"
+			],
+			[
+				2.09,
+				.2,
+				"link"
+			],
+			[
+				2.14,
+				.2,
+				"link"
+			],
+			[
+				2.24,
+				.2,
+				"link"
+			],
+			[
+				2.25,
+				.2,
+				"link"
+			],
+			[
+				2.26,
+				.2,
+				"link"
+			],
+			[
+				2.38,
+				.2,
+				"link"
+			],
+			[
+				2.57,
+				.2,
+				"link"
+			],
+			[
+				2.58,
+				.2,
+				"link"
+			],
+			[
+				2.64,
+				.2,
+				"link"
+			],
+			[
+				2.66,
+				1.23,
+				"final"
+			]
+		]
+	},
+	tornado: {
+		distance: 6,
+		hits: 8,
+		hitRange: [8, 8],
+		power: 6.08,
+		first: 1.11,
+		last: 3.03,
+		end: 3.63,
+		perMetre: .04,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				1.11,
+				.67,
+				"tick"
+			],
+			[
+				1.42,
+				.67,
+				"tick"
+			],
+			[
+				1.72,
+				.67,
+				"tick"
+			],
+			[
+				2.02,
+				.67,
+				"tick"
+			],
+			[
+				2.33,
+				.67,
+				"tick"
+			],
+			[
+				2.63,
+				.67,
+				"tick"
+			],
+			[
+				2.93,
+				.67,
+				"tick"
+			],
+			[
+				3.03,
+				1.39,
+				"final"
+			]
+		]
+	},
+	storm: {
+		distance: 6,
+		hits: 4,
+		hitRange: [2, 5],
+		power: 4.63,
+		first: .93,
+		last: 3.93,
+		end: 5.05,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				.93,
+				.86,
+				"tick"
+			],
+			[
+				1.16,
+				.86,
+				"tick"
+			],
+			[
+				2.97,
+				.86,
+				"tick"
+			],
+			[
+				3.93,
+				2.06,
+				"final"
+			]
+		]
+	},
+	drill: {
+		distance: 6,
+		hits: 12,
+		hitRange: [12, 12],
+		power: 9.27,
+		first: .92,
+		last: 1.76,
+		end: 2.27,
+		perMetre: .09,
+		lastPerMetre: .09,
+		timeline: [
+			[
+				.92,
+				1.23,
+				"first"
+			],
+			[
+				.92,
+				.61,
+				"tick"
+			],
+			[
+				1.01,
+				.61,
+				"tick"
+			],
+			[
+				1.1,
+				.61,
+				"tick"
+			],
+			[
+				1.2,
+				.61,
+				"tick"
+			],
+			[
+				1.29,
+				.61,
+				"tick"
+			],
+			[
+				1.38,
+				.61,
+				"tick"
+			],
+			[
+				1.47,
+				.61,
+				"tick"
+			],
+			[
+				1.56,
+				.61,
+				"tick"
+			],
+			[
+				1.65,
+				.61,
+				"tick"
+			],
+			[
+				1.75,
+				.61,
+				"tick"
+			],
+			[
+				1.76,
+				1.9,
+				"final"
+			]
+		]
+	},
+	finale: {
+		distance: 6,
+		hits: 6,
+		hitRange: [6, 6],
+		power: 4.95,
+		first: .25,
+		last: 1.52,
+		end: 3.03,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				.25,
+				.5,
+				"first"
+			],
+			[
+				.48,
+				.5,
+				"tick"
+			],
+			[
+				.68,
+				.5,
+				"tick"
+			],
+			[
+				.92,
+				.5,
+				"tick"
+			],
+			[
+				1.13,
+				.5,
+				"tick"
+			],
+			[
+				1.52,
+				2.45,
+				"final"
+			]
+		]
+	},
+	heal: {
+		distance: 6,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 0,
+		first: .62,
+		last: .62,
+		end: 2.93,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.62,
+			0,
+			"final"
+		]]
+	},
+	buff: {
+		distance: 6,
+		hits: 0,
+		hitRange: [0, 0],
+		power: 0,
+		first: null,
+		last: null,
+		end: 3.74,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: []
+	},
+	warp: {
+		distance: 6,
+		hits: 0,
+		hitRange: [0, 0],
+		power: 0,
+		first: null,
+		last: null,
+		end: .89,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: []
+	},
+	slash: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.08,
+		first: .15,
+		last: .15,
+		end: .75,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.15,
+			1.08,
+			"first"
+		]]
+	},
+	swipe: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.25,
+		first: .16,
+		last: .16,
+		end: .75,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.16,
+			1.25,
+			"first"
+		]]
+	},
+	rising: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.18,
+		first: .18,
+		last: .18,
+		end: .73,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.18,
+			1.18,
+			"first"
+		]]
+	},
+	cleave: {
+		distance: 2,
+		hits: 2,
+		hitRange: [2, 2],
+		power: 3.24,
+		first: .4,
+		last: .57,
+		end: 1.07,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.4,
+			1.22,
+			"first"
+		], [
+			.57,
+			2.03,
+			"final"
+		]]
+	},
+	combo: {
+		distance: 2,
+		hits: 3,
+		hitRange: [3, 3],
+		power: 2.22,
+		first: .17,
+		last: .81,
+		end: 1.32,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				.17,
+				.5,
+				"first"
+			],
+			[
+				.41,
+				.5,
+				"link"
+			],
+			[
+				.81,
+				1.22,
+				"final"
+			]
+		]
+	},
+	wave: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.28,
+		first: .25,
+		last: .25,
+		end: .75,
+		perMetre: .06,
+		lastPerMetre: .06,
+		timeline: [[
+			.25,
+			1.28,
+			"first"
+		]]
+	},
+	dash: {
+		distance: 2,
+		hits: 2,
+		hitRange: [2, 2],
+		power: 2.25,
+		first: .23,
+		last: .54,
+		end: 1.04,
+		perMetre: .01,
+		lastPerMetre: 0,
+		timeline: [[
+			.23,
+			.5,
+			"first"
+		], [
+			.54,
+			1.75,
+			"final"
+		]]
+	},
+	flurry: {
+		distance: 2,
+		hits: 11,
+		hitRange: [11, 11],
+		power: 4.83,
+		first: .12,
+		last: 1.45,
+		end: 1.95,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				.12,
+				.35,
+				"first"
+			],
+			[
+				.22,
+				.35,
+				"tick"
+			],
+			[
+				.33,
+				.35,
+				"tick"
+			],
+			[
+				.43,
+				.35,
+				"tick"
+			],
+			[
+				.54,
+				.35,
+				"tick"
+			],
+			[
+				.65,
+				.35,
+				"tick"
+			],
+			[
+				.75,
+				.35,
+				"tick"
+			],
+			[
+				.86,
+				.35,
+				"tick"
+			],
+			[
+				.96,
+				.35,
+				"tick"
+			],
+			[
+				1.07,
+				.35,
+				"tick"
+			],
+			[
+				1.45,
+				1.33,
+				"final"
+			]
+		]
+	},
+	thrust: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.07,
+		first: .21,
+		last: .21,
+		end: .72,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.21,
+			1.07,
+			"first"
+		]]
+	},
+	spin: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: .89,
+		first: .27,
+		last: .27,
+		end: .91,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.27,
+			.89,
+			"first"
+		]]
+	},
+	cross: {
+		distance: 2,
+		hits: 3,
+		hitRange: [3, 3],
+		power: 2.81,
+		first: .14,
+		last: .63,
+		end: 1.13,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				.14,
+				.5,
+				"first"
+			],
+			[
+				.31,
+				.5,
+				"link"
+			],
+			[
+				.63,
+				1.81,
+				"final"
+			]
+		]
+	},
+	smash: {
+		distance: 2,
+		hits: 3,
+		hitRange: [3, 3],
+		power: 3.11,
+		first: .48,
+		last: .57,
+		end: .98,
+		perMetre: 0,
+		lastPerMetre: .07,
+		timeline: [
+			[
+				.48,
+				1.91,
+				"first"
+			],
+			[
+				.53,
+				.6,
+				"tick"
+			],
+			[
+				.57,
+				.6,
+				"tick"
+			]
+		]
+	},
+	iaido: {
+		distance: 2,
+		hits: 2,
+		hitRange: [2, 2],
+		power: 2.88,
+		first: .52,
+		last: .9,
+		end: 1.4,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.52,
+			.4,
+			"first"
+		], [
+			.9,
+			2.48,
+			"final"
+		]]
+	},
+	strike: {
+		distance: 2,
+		hits: 2,
+		hitRange: [2, 2],
+		power: 1.89,
+		first: .22,
+		last: .39,
+		end: .94,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.22,
+			.48,
+			"first"
+		], [
+			.39,
+			1.4,
+			"final"
+		]]
+	},
+	rush: {
+		distance: 2,
+		hits: 7,
+		hitRange: [7, 7],
+		power: 3.09,
+		first: .2,
+		last: .74,
+		end: 1.32,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [
+			[
+				.2,
+				.3,
+				"first"
+			],
+			[
+				.26,
+				.3,
+				"tick"
+			],
+			[
+				.32,
+				.3,
+				"tick"
+			],
+			[
+				.38,
+				.3,
+				"tick"
+			],
+			[
+				.44,
+				.3,
+				"tick"
+			],
+			[
+				.5,
+				.3,
+				"tick"
+			],
+			[
+				.74,
+				1.29,
+				"final"
+			]
+		]
+	},
+	uppercut: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.59,
+		first: .25,
+		last: .25,
+		end: .96,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.25,
+			1.59,
+			"final"
+		]]
+	},
+	kick: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.41,
+		first: .26,
+		last: .26,
+		end: .9,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.26,
+			1.41,
+			"final"
+		]]
+	},
+	heel: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 2.24,
+		first: .48,
+		last: .48,
+		end: 1.13,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.48,
+			2.24,
+			"final"
+		]]
+	},
+	palm: {
+		distance: 2,
+		hits: 2,
+		hitRange: [2, 2],
+		power: 2.98,
+		first: .22,
+		last: .32,
+		end: .99,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.22,
+			.99,
+			"first"
+		], [
+			.32,
+			1.99,
+			"final"
+		]]
+	},
+	tackle: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.92,
+		first: .37,
+		last: .37,
+		end: 1.02,
+		perMetre: 0,
+		lastPerMetre: 0,
+		timeline: [[
+			.37,
+			1.92,
+			"final"
+		]]
+	},
+	pound: {
+		distance: 2,
+		hits: 1,
+		hitRange: [1, 1],
+		power: 1.5,
+		first: .62,
+		last: .62,
+		end: 1.22,
+		perMetre: .12,
+		lastPerMetre: .12,
+		timeline: [[
+			.62,
+			1.5,
+			"final"
+		]]
+	}
+};
+//#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.2.0";
+var VERSION = "0.3.0";
 function defineEffect(def) {
 	return def;
 }
 //#endregion
-export { BLUNT, ELEMENTS, EVENT, FIXTURES, FXHandle, FXSystem, FixtureRun, LoopHandle, MELEE, RECIPES, SELF, STATUSES, SUPPORT, StatusRun, VERSION, defineEffect, defineLoop, effect, helpers };
+export { BLUNT, ELEMENTS, EVENT, FIXTURES, FXHandle, FXSystem, FixtureRun, LoopHandle, MELEE, MOVES, RECIPES, SELF, STATUSES, SUPPORT, StatusRun, VERSION, defineEffect, defineLoop, effect, helpers };

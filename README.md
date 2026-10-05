@@ -145,6 +145,64 @@ A hit carries `point`, `power`, `index`, suggested `shake` and `hitStop` values,
 - `h.stop()` ends the move early and still fires `'end'`. It is safe to call from inside a handler.
 - An error thrown by one of your handlers does not stop the effects; it is reported as an uncaught error.
 
+## Hits per move
+
+Measured on each move's default definition (no seed) with the target 6 m away for magic and 2 m for melee, without hit-stop. `MOVES` exports the same numbers for balancing in code, plus every hit's time, power and role in `timeline`:
+
+```js
+import { MOVES } from 'rollshade';
+MOVES.combo.hits;      // 3
+MOVES.combo.power;     // total power of those hits
+MOVES.combo.timeline;  // [[seconds after fx.play(), power, role], …]
+```
+
+| recipe | hits | power | hit at (s) | per extra metre (s) | end (s) |
+|---|---|---|---|---|---|
+| `projectile` | 1 | 1.14 | 0.86 | +0.07 | 1.54 |
+| `lance` | 1 | 1.01 | 0.47 | +0.04 | 0.98 |
+| `beam` | 7 | 3.88 | 0.4 → 1.3 | — | 1.8 |
+| `explosion` | 1 | 1.98 | 0.45 | — | 1.45 |
+| `pillar` | 1 | 1.58 | 0.33 | — | 1.82 |
+| `meteor` | 2–5 | 7.69 | 1.24 → 2.17 | — | 3.17 |
+| `nova` | 1 | 1.37 | 0.81 | +0.02 | 1.54 |
+| `barrier` | 0 | — | — | — | 2.91 |
+| `shockwave` | 1 | 1.09 | 0.85 | +0.1 | 1.35 |
+| `summon` | 1 | 2.22 | 1.36 | — | 1.97 |
+| `missiles` | 16 | 4.3 | 1.75 → 2.66 | +0.03 → +0.05 | 3.17 |
+| `tornado` | 8 | 6.08 | 1.11 → 3.03 | +0.04 → 0 | 3.63 |
+| `storm` | 2–5 | 4.63 | 0.93 → 3.93 | — | 5.05 |
+| `drill` | 12 | 9.27 | 0.92 → 1.76 | +0.09 | 2.27 |
+| `finale` | 6 | 4.95 | 0.25 → 1.52 | — | 3.03 |
+| `heal` | 1 | 0 | 0.62 | — | 2.93 |
+| `buff` | 0 | — | — | — | 3.74 |
+| `warp` | 0 | — | — | — | 0.89 |
+| `slash` | 1 | 1.08 | 0.15 | — | 0.75 |
+| `swipe` | 1 | 1.25 | 0.16 | — | 0.75 |
+| `rising` | 1 | 1.18 | 0.18 | — | 0.73 |
+| `cleave` | 2 | 3.24 | 0.4 → 0.57 | — | 1.07 |
+| `combo` | 3 | 2.22 | 0.17 → 0.81 | — | 1.32 |
+| `wave` | 1 | 1.28 | 0.25 | +0.06 | 0.75 |
+| `dash` | 2 | 2.25 | 0.23 → 0.54 | +0.01 → 0 | 1.04 |
+| `flurry` | 11 | 4.83 | 0.12 → 1.45 | — | 1.95 |
+| `thrust` | 1 | 1.07 | 0.21 | — | 0.72 |
+| `spin` | 1 | 0.89 | 0.27 | — | 0.91 |
+| `cross` | 3 | 2.81 | 0.14 → 0.63 | — | 1.13 |
+| `smash` | 3 | 3.11 | 0.48 → 0.57 | 0 → +0.07 | 0.98 |
+| `iaido` | 2 | 2.88 | 0.52 → 0.9 | — | 1.4 |
+| `strike` | 2 | 1.89 | 0.22 → 0.39 | — | 0.94 |
+| `rush` | 7 | 3.09 | 0.2 → 0.74 | — | 1.32 |
+| `uppercut` | 1 | 1.59 | 0.25 | — | 0.96 |
+| `kick` | 1 | 1.41 | 0.26 | — | 0.9 |
+| `heel` | 1 | 2.24 | 0.48 | — | 1.13 |
+| `palm` | 2 | 2.98 | 0.22 → 0.32 | — | 0.99 |
+| `tackle` | 1 | 1.92 | 0.37 | — | 1.02 |
+| `pound` | 1 | 1.5 | 0.62 | +0.12 | 1.22 |
+
+- `hit at` is the first and last hit in seconds after `fx.play()`. Moves that travel land later on a farther target: add `per extra metre` for each metre beyond 6 m (magic) or 2 m (melee). Two numbers are for the first and the last hit (`MOVES[recipe].perMetre` and `lastPerMetre`). They were measured between 4 and 8 m (melee: 2 and 4 m).
+- `power` is the sum of `e.power` over the hits; `fx.play(…, { power })` multiplies it. `meteor` and `storm` place their strikes at random, so their count and power change from cast to cast (the table shows the range and a typical cast).
+- Seeds and `params` change counts and timing (a `projectile` with `count: 3` hits three times). For your own definitions, the hit events are the exact source.
+- With `feel: true`, or when you call `fx.hitStop()`, every hit pauses the effects for its `hitStop`, so later hits land that much later in real time.
+
 ## Status effects
 
 Put a status on any mesh or character, including skinned and animated ones. The character keeps its textures; patterns stick to the surface while it animates, and the original materials come back when every status is gone.
@@ -154,7 +212,7 @@ const frozen = fx.status(enemy, 'freeze', { duration: 1.2 });   // ice creeps up
 frozen.on('full', () => enemyMixer.timeScale = 0);             // fully frozen: stop the animation yourself
 frozen.stop();                                                  // thaw: shards scatter
 
-fx.status(enemy, 'burn');                                       // several statuses can stack
+fx.status(enemy, 'burn', { lasts: 4 });                         // several statuses can stack; this one ends after 4 s
 const shield = fx.status(player, 'shield');
 enemyShot.on('hit', (e) => shield.impact(e.point));             // ripple where the shield is hit
 
@@ -177,11 +235,12 @@ fx.status(newEnemy, 'appear');                                  // spawn in; rem
 | `stun` | light | Stars circling the head |
 
 - `progress` (0–1) drives how far freeze, petrify and dissolve have spread and how strong the others are. Set it directly (`s.progress = 0.5`) or animate it with `s.to(value, seconds)`.
-- `duration` is how many seconds the status takes to reach `progress` when it starts (defaults: freeze 0.9, petrify 1.4, dissolve 1.6, appear 1.4, the others fade in within 0.6). It is not how long the status lasts: statuses stay until you call `stop()` (only `appear` ends by itself), so run your own timer for "burn for 4 seconds".
+- `lasts` is how long the status stays, in seconds from the start; then it fades out over `fade` seconds (default 0.4) and fires `end`, as if you had called `stop()`. Without `lasts`, statuses stay until you call `stop()` (only `appear` ends by itself). Set `s.lasts = 4` to restart the countdown, for example when the same attack burns the target again; reading `s.lasts` gives the seconds left (`Infinity` without a limit). It counts game time, so `fx.timeScale` and hit-stop slow it down.
+- `duration` is how many seconds the status takes to reach `progress` when it starts (defaults: freeze 0.9, petrify 1.4, dissolve 1.6, appear 1.4, the others fade in within 0.6), not how long it lasts.
 - `full` fires when `progress` reaches 1; `end` fires after `stop()` has faded it out. `fx.statusesOf(target)` lists a status until its fade-out has finished.
 - `element` recolours any status (`{ element: 'dark' }` for black flames).
 - The target must contain at least one mesh. When the target is removed from the scene, its statuses end by themselves. If you throw the character away for good, call `dispose()` on its objects or materials as usual in three.js so the renderer lets go of it.
-- The first status on a model compiles a shader. Call `await fx.prewarmStatus(enemyModel)` once while loading to avoid a stutter (important on WebGL2). Once per kind of model is enough: status materials are shared by every character that uses the same source material, and each character's own values (how frozen, how burnt) are read per object at draw time. `SkeletonUtils.clone` shares materials; if you recolour clones, share one recoloured material per colour instead of cloning it per character.
+- The first status on a model compiles a shader. Call `await fx.prewarmStatus(enemyModel)` once while loading to avoid a stutter (important on WebGL2). The model does not have to be in the scene or visible yet: `prewarmStatus` adds it for the moment it needs and puts it back. Once per kind of model is enough: status materials are shared by every character that uses the same source material, and each character's own values (how frozen, how burnt) are read per object at draw time. `SkeletonUtils.clone` shares materials; if you recolour clones, share one recoloured material per colour instead of cloning it per character.
 - Each character gets one swapped material shared by all its statuses; after `prewarmStatus`, adding, stacking and removing statuses compiles nothing new, even on other characters that use the same model.
 
 ## Loops
@@ -254,6 +313,7 @@ function Caster() {
 new FXSystem({
   scene, camera, renderer,
   post: true,            // bloom + distortion; call fx.render() instead of renderer.render() (off by default)
+                         // { bloom: 'scene' } blooms everything bright on screen, not only the effects
   feel: true,            // camera shake, hit-stop and chromatic aberration on hits (off by default)
   hitStopScale: 1,       // 0.5 halves the automatic hit-stop, 0 turns it off (then call fx.hitStop(e.hitStop) yourself)
   floorY: 0,             // height of the flat ground: debris, decals, dust and ground effects land on it
@@ -265,6 +325,8 @@ new FXSystem({
 
 - Heavy scenes: `fx.setQuality('low')` renders the scene at 55% resolution with fewer particles (`'medium'`: 75%), or set `fx.renderScale` (0.25–1) directly; `'auto'` does this only while frames run over budget and raises it again. Render scale works with `post: true`.
 - High-DPI screens: with `post: true` the scene pass multisamples like your renderer. `new WebGPURenderer({ antialias: devicePixelRatio < 1.5 })` skips MSAA where the extra pixels already hide jagged edges, which saves about 48 bytes of GPU memory per pixel (about 250 MB on a 2880×1800 canvas) and some GPU time.
+- Bloom touches only what rollshade draws: moves, loops, status shells and the glow of statuses on characters. Your models, floor and sky keep their brightness, however bright they are. `post: { bloom: 'scene' }` blooms the whole picture instead (the behaviour before 0.3.0); `strength`, `radius` and `threshold` tune it in both modes.
+- `'auto'` quality waits 2 seconds after start and after `prewarm()` before it judges, ignores single long frames (shader compiles, a tab switch), and lowers only after frames stay over budget for a second.
 - Have your own post processing? Pass `post: false` and render as usual; you lose the built-in bloom and camera shake, and can use `e.shake` from hit events instead.
 - `fx.timeScale` for slow motion, `fx.shake(amount)` and `fx.hitStop(seconds)` to trigger them yourself. To freeze only when something is actually hit, set `hitStopScale: 0` and call `fx.hitStop(e.hitStop)` from your `hit` handler when the hit lands on a target.
 - `fx.clear()` stops everything; `fx.dispose()` frees GPU resources. Create one `FXSystem` per scene and keep it: re-creating it is expensive. To switch cameras, set `fx.camera = otherCamera`; perspective and orthographic cameras both work.

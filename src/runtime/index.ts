@@ -12,7 +12,9 @@ export type { FixtureOptions } from './fixtures';
 export { StatusRun } from './status';
 export type { StatusOptions, StatusEvent } from './status';
 export type { EffectOptions } from './effect';
-export const VERSION = '0.2.0';
+export { MOVES } from './moves';
+export type { MoveTiming } from './moves';
+export const VERSION = '0.3.0';
 
 import type { EffectDef } from './system';
 

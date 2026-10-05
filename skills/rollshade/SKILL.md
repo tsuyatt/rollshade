@@ -59,7 +59,7 @@ h.on('hit', (e) => {
 h.on('end', () => {});
 ```
 
-- Put damage, sounds and knockback in the `hit` handler, not on a timer. Multi-hit moves send several hits; `role` is `'first'`, `'link'`, `'final'` or `'tick'`. `power` is about 1 per hit (ticks less, finishers up to about 2.7). For a fixed damage per cast, apply it once when `e.index === 0` (not every move has a `'final'` hit).
+- Put damage, sounds and knockback in the `hit` handler, not on a timer. Multi-hit moves send several hits; `role` is `'first'`, `'link'`, `'final'` or `'tick'`. `power` is about 1 per hit (ticks less, finishers up to about 2.7). For a fixed damage per cast, apply it once when `e.index === 0` (not every move has a `'final'` hit). For balancing, `MOVES[recipe]` (exported) gives each move's hit count, total power and hit times, measured on the default definition.
 - `h.stop()` ends a move early and still fires `'end'`. `barrier`, `buff` and `warp` send no `hit`.
 - `from` and `to` take a `Vector3` or an `Object3D`. Pass an `Object3D` (for example an empty child of the character at hand or chest height) so the effect follows moving characters (`explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when cast).
 - `floorY` in the play options sets the ground under that move (for example a fight on a rooftop); otherwise `fx.floorY` is used. Loops use the height they are placed at.
@@ -119,7 +119,7 @@ Blade, fist and kick moves expect the attacker about 2 m from the target (`dash`
 ## Status effects on characters
 
 ```js
-await fx.prewarmStatus(enemyTemplate);                 // once per kind of model while loading; share materials between clones
+await fx.prewarmStatus(enemyTemplate);                 // once per kind of model while loading (it need not be in the scene); share materials between clones
 const s = fx.status(enemy, 'freeze', { duration: 1 }); // burn, freeze, shock, poison, petrify, dissolve, appear, bless, curse, shield, stun
 s.on('full', () => { enemy.userData.frozen = true; mixer.timeScale = 0; });
 s.stop();                                              // remove (freeze shatters, petrify crumbles, shield breaks)
@@ -130,7 +130,7 @@ s.stop();                                              // remove (freeze shatter
 - Death: `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))`. Spawn: `fx.status(enemy, 'appear')` (ends by itself).
 - Shield hits: `shield.impact(e.point)` from the attack's `hit` handler.
 - Stopping gameplay (animations, movement) while frozen or petrified is the game's job.
-- `duration` is the time to reach `progress`, not how long the status lasts. Statuses last until `.stop()` (only `appear` ends itself): use a timer for timed statuses.
+- Timed statuses: `fx.status(enemy, 'burn', { lasts: 4 })` ends by itself after 4 s (game time); `s.lasts = 4` restarts the countdown when it is applied again. Without `lasts` a status stays until `.stop()` (only `appear` ends itself). `duration` is the time to reach `progress`, not how long it lasts.
 
 ## Placed loops
 

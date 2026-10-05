@@ -6,6 +6,34 @@ type N = any;
 
 const WAVES = 8;
 
+export type BloomScope = 'fx' | 'scene';
+
+export interface PostOptions {
+  strength?: number;
+  radius?: number;
+  threshold?: number;
+  bloom?: BloomScope;
+}
+
+export const glowing = new WeakSet<THREE.Object3D>();
+
+const glowFlag: N = uniform(0).onObjectUpdate(({ object }) => {
+  if (!object) return 0;
+  for (let o: THREE.Object3D | null = object; o; o = o.parent) if (glowing.has(o)) return 1;
+  return object.userData.rollshadeStatus ? 2 : 0;
+});
+
+const glow: N = vec4(select(glowFlag.equal(1), output.rgb, select(glowFlag.equal(2), emissive, vec3(0))), output.a);
+
+function scenePassOf(scene: THREE.Scene, camera: THREE.Camera, outputs: Record<string, N>): N {
+  const p: N = pass(scene, camera);
+  if (Object.keys(outputs).length === 1) return p;
+  const targets: N = mrt(outputs);
+  if (outputs.glow) targets.setBlendMode('glow', new THREE.BlendMode(THREE.MaterialBlending));
+  p.setMRT(targets);
+  return p;
+}
+
 interface Wave {
   pos: THREE.Vector3;
   radius: number;
@@ -32,6 +60,7 @@ export class FXPost {
   private flashColor = uniform(new THREE.Color(1, 1, 1));
   private time = uniform(0);
   private vignette = uniform(0.55);
+  readonly scope: BloomScope;
   loopBloomUsed = false;
   clean = false;
   zoom = 0;
@@ -47,12 +76,13 @@ export class FXPost {
     private renderer: THREE.WebGPURenderer,
     scene: THREE.Scene,
     private camera: THREE.Camera,
-    opts: { strength?: number; radius?: number; threshold?: number } = {},
+    opts: PostOptions = {},
   ) {
     this.waveU = uniformArray(this.waveData, 'vec4');
-    this.scenePass = pass(scene, camera);
-    this.loopScenePass = pass(scene, camera);
-    this.loopScenePass.setMRT(mrt({ output, emissive }));
+    this.scope = opts.bloom ?? 'fx';
+    const fx = this.scope === 'fx' ? { glow } : {};
+    this.scenePass = scenePassOf(scene, camera, { output, ...fx });
+    this.loopScenePass = scenePassOf(scene, camera, { output, emissive, ...fx });
     const plain = this.chain(this.scenePass, opts);
     const looped = this.chain(this.loopScenePass, opts);
     this.bloom = plain.bloom;
@@ -65,8 +95,7 @@ export class FXPost {
     this.loopPipeline.outputNode = this.finish(looped.compressed.rgb.add(looped.bloom.rgb).add(this.loopBloom.rgb));
   }
 
-  private chain(scenePass: N, opts: { strength?: number; radius?: number; threshold?: number }): { compressed: N; bloom: N } {
-    const tex: N = scenePass.getTextureNode('output');
+  private chain(scenePass: N, opts: PostOptions): { compressed: N; bloom: N } {
     const warped = Fn(() => {
       const p: N = uv().toVar();
       const offset: N = vec2(0).toVar();
@@ -79,31 +108,35 @@ export class FXPost {
       }
       return p.sub(offset);
     })();
-    const zoomed = Fn(() => {
-      const acc: N = vec3(0).toVar();
-      If(this.zoomAmount.greaterThan(0), () => {
-        const dir: N = warped.sub(this.zoomCenter);
-        for (let i = 0; i < 8; i++) {
-          const s: N = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
-          const ca: N = s.sub(0.5).mul(this.chroma);
-          acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
-        }
-        acc.divAssign(8);
-      }).Else(() => {
-        const ca: N = warped.sub(0.5).mul(this.chroma);
-        acc.assign(vec3(tex.sample(warped.add(ca)).r, tex.sample(warped).g, tex.sample(warped.sub(ca)).b));
-      });
-      return acc;
-    })();
-    const compressed = Fn(() => {
-      const c: N = zoomed.toVar();
-      const l: N = max(max(c.r, c.g), c.b);
-      const knee = 1.6;
-      const e: N = max(l.sub(knee), 0);
-      const target: N = float(knee).add(e.div(e.div(knee).add(1)));
-      return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
-    })();
-    return { compressed, bloom: bloom(compressed, opts.strength ?? 0.8, opts.radius ?? 0.25, opts.threshold ?? 0.45) };
+    const look = (tex: N, chroma: N) =>
+      Fn(() => {
+        const acc: N = vec3(0).toVar();
+        If(this.zoomAmount.greaterThan(0), () => {
+          const dir: N = warped.sub(this.zoomCenter);
+          for (let i = 0; i < 8; i++) {
+            const s: N = warped.sub(dir.mul(this.zoomAmount.mul(i / 7)));
+            const ca: N = s.sub(0.5).mul(chroma);
+            acc.addAssign(vec3(tex.sample(s.add(ca)).r, tex.sample(s).g, tex.sample(s.sub(ca)).b));
+          }
+          acc.divAssign(8);
+        }).Else(() => {
+          const ca: N = warped.sub(0.5).mul(chroma);
+          acc.assign(vec3(tex.sample(warped.add(ca)).r, tex.sample(warped).g, tex.sample(warped.sub(ca)).b));
+        });
+        return acc;
+      })();
+    const compress = (zoomed: N) =>
+      Fn(() => {
+        const c: N = zoomed.toVar();
+        const l: N = max(max(c.r, c.g), c.b);
+        const knee = 1.6;
+        const e: N = max(l.sub(knee), 0);
+        const target: N = float(knee).add(e.div(e.div(knee).add(1)));
+        return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
+      })();
+    const compressed = compress(look(scenePass.getTextureNode('output'), this.chroma));
+    const source = this.scope === 'fx' ? compress(look(scenePass.getTextureNode('glow'), this.chroma)) : compressed;
+    return { compressed, bloom: bloom(source, opts.strength ?? 0.8, opts.radius ?? 0.25, opts.threshold ?? 0.45) };
   }
 
   private finish(sum: N): N {
@@ -196,6 +229,19 @@ export class FXPost {
 
   render(): void {
     (this.loopBloomUsed ? this.loopPipeline : this.pipeline).render();
+  }
+
+  warm(): void {
+    const r = this.renderer;
+    const { toneMapping, outputColorSpace } = r;
+    r.toneMapping = THREE.NoToneMapping;
+    r.outputColorSpace = THREE.ColorManagement.workingColorSpace;
+    try {
+      (this.loopBloomUsed ? this.loopScenePass : this.scenePass).updateBefore({ renderer: r });
+    } finally {
+      r.toneMapping = toneMapping;
+      r.outputColorSpace = outputColorSpace;
+    }
   }
 
   setCamera(camera: THREE.Camera): void {

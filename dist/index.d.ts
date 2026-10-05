@@ -1,10 +1,10 @@
-// Rollshade FX runtime 0.2.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.3.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.2.0';
+export declare const VERSION: '0.3.0';
 
 /** A fixed point, or an Object3D whose world position is read every frame. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;
@@ -62,8 +62,8 @@ export interface FXOptions {
   scene: THREE.Scene;
   camera: THREE.Camera;
   renderer: THREE.WebGPURenderer;
-  /** Bloom and screen distortion; then call `fx.render()` instead of `renderer.render()`. Off by default. */
-  post?: boolean | { strength?: number; radius?: number; threshold?: number };
+  /** Bloom and screen distortion; then call `fx.render()` instead of `renderer.render()`. Off by default. Bloom applies to rollshade's effects only; `bloom: 'scene'` blooms the whole picture. */
+  post?: boolean | { strength?: number; radius?: number; threshold?: number; bloom?: 'fx' | 'scene' };
   /** Camera shake, hit-stop and chromatic aberration on hits. Off by default. */
   feel?: boolean;
   /** Multiplies the automatic hit-stop; 0 turns it off. Default 1. */
@@ -156,27 +156,33 @@ export declare const helpers: Record<string, any>;
 
 export type StatusName = 'burn' | 'freeze' | 'shock' | 'poison' | 'petrify' | 'dissolve' | 'appear' | 'bless' | 'curse' | 'shield' | 'stun';
 
-/** `progress` (0–1) is how far the status has spread; `duration` is the seconds to reach it, not how long the status lasts. */
+/** `progress` (0–1) is how far the status has spread; `duration` is the seconds to reach it. `lasts` is how long the status stays. */
 export interface StatusOptions {
   element?: ElementName | (string & {});
   hue?: number;
   color?: THREE.ColorRepresentation;
   progress?: number;
   duration?: number;
+  /** Seconds (game time) from the start until the status fades out by itself. Without it, the status stays until `stop()`. */
+  lasts?: number;
+  /** Fade-out seconds when `lasts` runs out or `stop()` is called without an argument. Default 0.4. */
+  fade?: number;
   scale?: number;
 }
 
-/** Returned by `fx.status()`. Lasts until `stop()`, or until the target leaves the scene (`appear` ends by itself). */
+/** Returned by `fx.status()`. Lasts until `stop()`, its `lasts` time, or until the target leaves the scene (`appear` ends by itself). */
 export declare class StatusRun {
   readonly name: string;
   readonly alive: boolean;
   readonly value: number;
   progress: number;
+  /** Seconds left before the status fades out by itself (`Infinity` without a limit). Assign to restart the countdown. */
+  lasts: number;
   readonly done: Promise<void>;
   to(progress: number, seconds?: number): this;
   /** Shield only: a ripple where it was hit. */
   impact(point: THREE.Vector3): void;
-  /** Fades the status out over `fade` seconds, then fires `'end'`. */
+  /** Fades the status out over `fade` seconds (default: the `fade` option, 0.4), then fires `'end'`. */
   stop(fade?: number): void;
   on(event: 'full' | 'end', fn: () => void): () => void;
 }
@@ -239,7 +245,7 @@ export declare class FXSystem {
   spawn(effect: string | LoopDef, options?: SpawnOptions): LoopHandle;
   /** Puts a status on a character or mesh (the target must contain a mesh). */
   status(target: THREE.Object3D, name: StatusName, options?: StatusOptions): StatusRun;
-  /** Compiles the status materials for this kind of model; call once while loading. `onProgress` gets 0–1. */
+  /** Compiles the status materials for this kind of model; call once while loading. The target may be outside the scene or hidden: it is added for the compile and put back. `onProgress` gets 0–1. */
   prewarmStatus(target: THREE.Object3D, names?: StatusName[], onProgress?: (progress: number) => void): Promise<void>;
   statusesOf(target: THREE.Object3D): StatusRun[];
   /** Places a lasting effect at a ground point, or on an Object3D it follows. */
@@ -258,6 +264,30 @@ export declare class FXSystem {
   /** Frees GPU resources; the system cannot be used afterwards. */
   dispose(): void;
 }
+
+/** Hits of a move's default definition, measured at `distance` metres without hit-stop. Seeds and params change them. */
+export interface MoveTiming {
+  /** Distance to the target the numbers were measured at (6 m for magic, 2 m for melee). */
+  distance: number;
+  /** Hits in a typical cast. */
+  hits: number;
+  /** Fewest and most hits seen (`meteor` and `storm` vary per cast). */
+  hitRange: [number, number];
+  /** Sum of `e.power` over a typical cast, before `PlayOptions.power`. */
+  power: number;
+  /** Seconds after `fx.play()` of the first and last hit; null for moves without hits. */
+  first: number | null;
+  last: number | null;
+  /** Seconds after `fx.play()` until `'end'`. */
+  end: number;
+  /** Seconds the first and the last hit move later per metre of extra distance. */
+  perMetre: number;
+  lastPerMetre: number;
+  /** Every hit of a typical cast: [seconds after `fx.play()`, power, role]. */
+  timeline: [number, number, HitRole][];
+}
+
+export declare const MOVES: Record<RecipeName, MoveTiming>;
 
 export declare function defineEffect<T extends EffectDef>(def: T): T;
 

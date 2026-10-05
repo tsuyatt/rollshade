@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 (2026-10-05)
+
+- Bloom now applies only to what rollshade draws (moves, loops, status shells and the glow of statuses on characters). Bright models, floors and skies no longer blow out. `post: { bloom: 'scene' }` brings back bloom on the whole picture. The scene pass writes one more half-float colour target for this, the size of the canvas.
+- `MOVES` gives each move's hit count, total power and hit times (first, last, every hit with its role), plus how much later the hits land per extra metre. The README has the same numbers as a table under "Hits per move".
+- `fx.status(target, name, { lasts: 4 })` ends a status by itself after 4 seconds of game time. `fade` sets the fade-out, and `run.lasts = 4` restarts the countdown.
+- `prewarmStatus()` works on a model that is not in the scene yet, or is hidden: it adds the model while compiling and puts it back.
+- Fixed: with `post` on, `prewarm()` and `prewarmStatus()` skipped most of their work once frames were being drawn. The scene pass draws once per frame, so the extra draws in the same frame did nothing. On WebGPU, 6 pipelines were still created during play after `prewarm()`, and `prewarmStatus()` compiled none of the status materials. Both now compile everything they cover.
+- Fixed: status shells (freeze, shock, burn, poison, bless, curse) freed their pipeline when the last character with that status lost it, so applying the status again compiled it again and stuttered. One shell of each kind is now kept.
+- `quality: 'auto'` no longer drops to the lowest level because of stutters at start: it waits 2 seconds after start and after `prewarm()`, counts a long frame as at most two frame budgets, and lowers quality only after a second of slow frames. The wait before raising quality again is capped at 12 seconds and resets after 15 seconds without slowdowns (it could reach 20 seconds per step and never reset).
+
 ## 0.2.0 (2026-10-02)
 
 - 14 melee moves, 39 in all. Blade: `swipe` (only the swing trail and a few sparks, for the quietest cut), `rising`, `cleave`, `combo`, `wave` (a thrown crescent), `dash` (runs through the target), `flurry`. Fists and kicks: `rush`, `uppercut`, `kick`, `heel` (axe kick), `palm`, `tackle`, `pound` (ground shockwave). `BLUNT` lists the fist, kick and body moves.

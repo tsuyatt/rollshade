@@ -4,6 +4,7 @@ import { Ctx, clamp01 } from './ctx';
 import { helpers } from './loop-helpers';
 import { tnoise } from './noise';
 import { palette, type Palette } from './palette';
+import { glowing } from './post';
 import type { FXHandle, FXSystem } from './system';
 
 type N = any;
@@ -16,6 +17,8 @@ export interface StatusOptions {
   color?: THREE.ColorRepresentation;
   progress?: number;
   duration?: number;
+  lasts?: number;
+  fade?: number;
   scale?: number;
 }
 
@@ -94,6 +97,8 @@ export const R = {
 const meshKind = (mesh: THREE.Mesh) => `${(mesh as THREE.SkinnedMesh).isSkinnedMesh ? 'skin' : 'rigid'}|${Object.keys(mesh.geometry?.morphAttributes ?? {}).join(',')}`;
 const surfaces = new WeakMap<THREE.Material, Map<string, THREE.Material>>();
 const shells = new Map<string, THREE.Material>();
+const held = new Set<string>();
+const shellKey = new WeakMap<THREE.Mesh, string>();
 
 export function release(material: THREE.Material): void {
   for (const m of keepers.values()) if (m === material) return;
@@ -407,6 +412,8 @@ export class StatusRun {
   private listeners = new Map<StatusEvent, Set<() => void>>();
   private stopping = false;
   private fullSent = false;
+  private left = Infinity;
+  private fade: number;
   alive = true;
   readonly done: Promise<void>;
   private resolve!: () => void;
@@ -427,6 +434,8 @@ export class StatusRun {
     this.ctx = new Ctx(fx, handle, { id: `status-${name}`, recipe: 'status', element, hue: opts.hue ?? 0 }, this.pal, { from: layer.target, to: layer.target, scale: opts.scale ?? 1 });
     this.ctx.params = {};
     this.value = recipe.initial ?? 0;
+    this.fade = opts.fade ?? 0.4;
+    if (opts.lasts !== undefined && !recipe.autoEnd) this.lasts = opts.lasts;
     this.to(recipe.autoEnd ? recipe.goal ?? 0 : opts.progress ?? recipe.goal ?? 1, opts.duration ?? recipe.duration);
     if (recipe.shell) {
       for (const mesh of layer.meshes) {
@@ -440,6 +449,8 @@ export class StatusRun {
         }
         const copy: THREE.Mesh = helpers.overlay(mesh, mat);
         tag(copy);
+        glowing.add(copy);
+        shellKey.set(copy, key);
         bind(copy, { layer, run: this, unit: layer.unitOf(mesh), thick: recipe.thickness });
         copy.renderOrder = 2;
         this.overlays.push(copy);
@@ -454,6 +465,14 @@ export class StatusRun {
 
   set progress(v: number) {
     this.to(v, 0);
+  }
+
+  get lasts(): number {
+    return this.left;
+  }
+
+  set lasts(seconds: number) {
+    this.left = Math.max(seconds, 0);
   }
 
   to(progress: number, seconds = 0.5): this {
@@ -486,7 +505,7 @@ export class StatusRun {
     if (this.alive && !this.stopping) this.recipe.impact?.(this, point);
   }
 
-  stop(fade = 0.4): void {
+  stop(fade = this.fade): void {
     if (this.stopping || !this.alive) return;
     this.stopping = true;
     this.recipe.stopped?.(this);
@@ -495,6 +514,7 @@ export class StatusRun {
 
   step(dt: number): void {
     if (!this.alive) return;
+    if (this.left !== Infinity && !this.stopping && (this.left -= dt) <= 0) this.stop();
     const d = this.target - this.value;
     const move = this.rate === Infinity ? Math.abs(d) : this.rate * dt;
     this.value = Math.abs(d) <= move ? this.target : this.value + Math.sign(d) * move;
@@ -516,7 +536,9 @@ export class StatusRun {
     this.handle.stop();
     for (const o of this.overlays) {
       o.removeFromParent();
-      o.dispose();
+      const key = shellKey.get(o)!;
+      if (held.has(key)) o.dispose();
+      else held.add(key);
     }
     this.layer.runs.delete(this);
     this.emit('end');

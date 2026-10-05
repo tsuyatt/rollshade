@@ -3,7 +3,7 @@ import { LightPool } from './lights';
 import { palette, type Palette } from './palette';
 import { ParticleSystem, emission, flushParticleEvents, nearFade, orthoHalf, screenCap, sizeFloor, tanHalfFov, type ParticleKind } from './particles';
 import { clampParams } from '../core/fx/variation';
-import { FXPost } from './post';
+import { FXPost, glowing, type PostOptions } from './post';
 import { BOLT_POINTS, PRIM_FACTORIES, PrimPool, disposePrim, RIBBON_LENGTH, RibbonTrail, arcGeometry, stripGeometry } from './prims';
 import { Scheduler } from './scheduler';
 import { helixGeometry } from './shapes';
@@ -52,7 +52,7 @@ export interface FXOptions {
   scene: THREE.Scene;
   camera: THREE.Camera;
   renderer: THREE.WebGPURenderer;
-  post?: boolean | { strength?: number; radius?: number; threshold?: number };
+  post?: boolean | PostOptions;
   feel?: boolean;
   hitStopScale?: number;
   floorY?: number;
@@ -78,6 +78,8 @@ const NEAR = nearFade.value.clone();
 const FLOOR = sizeFloor.value as number;
 
 const WARM_STEPS = 8;
+const SETTLE = 2;
+const RAISE_WAIT = 3;
 const PRESETS: Record<Exclude<QualityPreset, 'auto'>, [number, number]> = { high: [1, 1], medium: [0.7, 0.75], low: [0.45, 0.55] };
 
 export class FXHandle {
@@ -179,8 +181,10 @@ export class FXSystem {
   private frameEma = 1 / 60;
   private over = 0;
   private under = 0;
-  private raiseWait = 3;
+  private raiseWait = RAISE_WAIT;
   private sinceRaise = 99;
+  private sinceDrop = 99;
+  private settle = SETTLE;
   private resolution: { min: number; max: number } | null = null;
   private frameBudget: number;
   private disposed = false;
@@ -199,6 +203,7 @@ export class FXSystem {
     this.photosensitive = opts.photosensitive ?? false;
     this.impactFrames = opts.impactFrames ?? false;
     this.root.name = 'rollshade-fx';
+    glowing.add(this.root);
     this.scene.add(this.root);
     const budget = { ...BUDGET, ...opts.budget };
     this.particles = Object.fromEntries(
@@ -266,6 +271,7 @@ export class FXSystem {
     this.preset = preset;
     if (preset === 'auto') {
       this.autoQuality = true;
+      this.calm();
       return;
     }
     this.autoQuality = false;
@@ -283,6 +289,12 @@ export class FXSystem {
       const ratio = Math.round((min + (max - min) * Math.min(Math.max((this.level - 0.3) / 0.7, 0), 1)) * 8) / 8;
       if (Math.abs(this.renderer.getPixelRatio() - ratio) > 1e-3) this.renderer.setPixelRatio(ratio);
     }
+  }
+
+  private calm(): void {
+    this.settle = SETTLE;
+    this.frameEma = this.frameBudget;
+    this.over = this.under = 0;
   }
 
   get maxScreenSize(): number {
@@ -314,19 +326,27 @@ export class FXSystem {
   }
 
   private adapt(frame: number): void {
+    if (this.settle > 0) {
+      this.settle -= frame;
+      return;
+    }
+    frame = Math.min(frame, this.frameBudget * 2);
     this.frameEma += (frame - this.frameEma) * 0.12;
     this.sinceRaise += frame;
+    this.sinceDrop += frame;
     if (this.frameEma > this.frameBudget * 1.2) {
       this.over += frame;
       this.under = 0;
-      if (this.over > 0.3 && this.level > 0.3) {
-        if (this.sinceRaise < 5) this.raiseWait = Math.min(this.raiseWait * 2, 20);
+      if (this.over > 1 && this.level > 0.3) {
+        if (this.sinceRaise < 5) this.raiseWait = Math.min(this.raiseWait * 2, 12);
         this.quality = this.level - 0.175;
         this.over = 0;
+        this.sinceDrop = 0;
       }
     } else if (this.frameEma < this.frameBudget * 1.05) {
       this.under += frame;
       this.over = 0;
+      if (this.sinceDrop > 15) this.raiseWait = RAISE_WAIT;
       if (this.under > this.raiseWait && this.level < 1) {
         this.quality = this.level + 0.175;
         this.under = 0;
@@ -334,7 +354,6 @@ export class FXSystem {
       }
     }
   }
-
 
   add(...defs: (EffectDef | LoopDef)[]): this {
     for (const d of defs) {
@@ -353,6 +372,7 @@ export class FXSystem {
     if (def.object && !opts.object) throw new Error(`rollshade: "${def.id}" needs { object }`);
     const instance = def.create({ scene: this.scene, camera: this.camera, renderer: this.renderer, object: opts.object, period: opts.period ?? def.period });
     if (instance.object && opts.scale) instance.object.scale.multiplyScalar(opts.scale);
+    if (instance.object && !def.object) glowing.add(instance.object);
     const handle = new LoopHandle(def.id, def, instance, def.object ? undefined : opts.at, (h) => {
       this.loops.delete(h);
       this.syncLoopBloom();
@@ -406,7 +426,7 @@ export class FXSystem {
     return this.statuses.start(target, name, recipe, new FXHandle(`status-${name}`, this), options);
   }
 
-  private renderAll(roots: THREE.Object3D[]): void {
+  private renderAll(roots: THREE.Object3D[], warm = false): void {
     const culled: THREE.Object3D[] = [];
     for (const root of roots)
       root.traverse((o) => {
@@ -415,7 +435,8 @@ export class FXSystem {
           culled.push(o);
         }
       });
-    if (this.post) this.post.render();
+    if (warm && this.post) this.post.warm();
+    else if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
     for (const o of culled) o.frustumCulled = true;
   }
@@ -425,24 +446,61 @@ export class FXSystem {
       await this.renderer.compileAsync(this.scene, this.camera, null, onProgress && ((e) => onProgress((0.9 * e.loaded) / Math.max(e.total, 1))));
       if (this.disposed) return;
       this.renderAll(roots);
+      this.calm();
       onProgress?.(1);
       return;
     }
     const meshes: THREE.Object3D[] = [];
-    for (const root of roots) root.traverse((o) => (o as THREE.Mesh).isMesh && o.visible && meshes.push(o));
+    const leaf = (o: THREE.Object3D) => {
+      let inner = false;
+      o.traverse((c) => (inner ||= c !== o && (c as THREE.Mesh).isMesh));
+      return !inner;
+    };
+    for (const root of roots) root.traverse((o) => (o as THREE.Mesh).isMesh && o.visible && leaf(o) && meshes.push(o));
     const steps = Math.max(Math.min(WARM_STEPS, meshes.length), 1);
     for (let step = 0; step < steps && !this.disposed; step++) {
       meshes.forEach((m, i) => (m.visible = i % steps === step));
-      this.renderAll(roots);
+      this.renderAll(roots, true);
       onProgress?.((step + 1) / steps);
       if (step < steps - 1) await new Promise((r) => setTimeout(r, 0));
     }
     for (const m of meshes) m.visible = true;
+    if (!this.disposed) this.post.render();
+    this.calm();
   }
 
   async prewarmStatus(target: THREE.Object3D, names: string[] = Object.keys(STATUSES), onProgress?: (progress: number) => void): Promise<void> {
-    const runs = names.map((name) => this.status(target, name, { progress: 0, duration: 0 }));
-    await this.compile([target], onProgress);
+    const parent = target.parent;
+    const index = parent ? parent.children.indexOf(target) : -1;
+    const visible = target.visible;
+    let borrow = true;
+    for (let o = parent; o; o = o.parent) {
+      if (!o.visible) break;
+      if (o === this.scene) borrow = false;
+    }
+    if (borrow) {
+      this.scene.add(target);
+      target.updateWorldMatrix(false, true);
+    }
+    target.visible = true;
+    const runs: StatusRun[] = [];
+    try {
+      for (const name of names) runs.push(this.status(target, name, { progress: 0, duration: 0 }));
+      await this.compile([target], onProgress);
+    } catch (error) {
+      for (const run of runs) run.finish();
+      throw error;
+    } finally {
+      target.visible = visible;
+      if (borrow) {
+        if (parent) {
+          parent.add(target);
+          parent.children.splice(parent.children.indexOf(target), 1);
+          parent.children.splice(index, 0, target);
+        } else target.removeFromParent();
+        target.updateWorldMatrix(true, true);
+      }
+    }
     if (this.disposed) return;
     for (const run of runs) run.finish();
     this.statuses.update(0, this.scheduler.time);
