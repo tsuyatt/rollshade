@@ -60,7 +60,7 @@ renderer.setAnimationLoop((ms) => {
 
 ## Moves
 
-`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D` (followed while it moves; `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall.
+`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall.
 
 | recipe | kind | from | to | what happens |
 |---|---|---|---|---|
@@ -268,10 +268,10 @@ torch.stop();                                                // fade out and rem
 | `sigil` | arcane | Two counter-rotating magic circles on the ground with a faint light column and rising runes |
 | `savepoint` | light | Floating, spinning crystal over a pedestal with a light column |
 | `barrier` | light | 2.4 m hexagon dome over a magic circle; `impact(point)` ripples, shatters when stopped |
-| `aura` | fire | Flaming aura sized to the Object3D you pass as `at`; follows it |
+| `aura` | fire | Flaming aura sized to the Object3D you pass as `at`; follows it. Bright at the outline and thin in front, so the character stays visible |
 | `beacon` | light | 14 m pillar of light visible from far away, for quest markers |
 
-- `at` is a `Vector3` or an `Object3D` to follow. Positions are the ground point under the effect.
+- `at` is a `Vector3` or an `Object3D` to follow; both are read every frame, so changing the vector in place moves the loop. Positions are the ground point under the effect.
 - The ground of a loop is the height you place it at, so a torch on a balcony or in a cellar behaves like one on the floor; `floorY` overrides it.
 - `prop: false` removes the simple low-poly stands (torch stick, logs, candelabra, portal frame, pedestal) so you can put the effect on your own model.
 - Loops share a fixed pool of point lights (`loopLights`, default 4). Changing the number of lights in three.js recompiles every material, so the pool never grows; loops beyond it glow but do not light their surroundings. `light: false` opts a loop out.
@@ -326,6 +326,7 @@ new FXSystem({
 - Heavy scenes: `fx.setQuality('low')` renders the scene at 55% resolution with fewer particles (`'medium'`: 75%), or set `fx.renderScale` (0.25–1) directly; `'auto'` does this only while frames run over budget and raises it again. Render scale works with `post: true`.
 - High-DPI screens: with `post: true` the scene pass multisamples like your renderer. `new WebGPURenderer({ antialias: devicePixelRatio < 1.5 })` skips MSAA where the extra pixels already hide jagged edges, which saves about 48 bytes of GPU memory per pixel (about 250 MB on a 2880×1800 canvas) and some GPU time.
 - Bloom touches only what rollshade draws: moves, loops, status shells and the glow of statuses on characters. Your models, floor and sky keep their brightness, however bright they are. `post: { bloom: 'scene' }` blooms the whole picture instead (the behaviour before 0.3.0); `strength`, `radius` and `threshold` tune it in both modes.
+- Your own glowing parts (crystals, rings, glowing edges): `fx.glow(object)` adds the object and its children to the effects bloom, `fx.glow(object, false)` takes it out. Their whole colour goes into the bloom, so mark the bright, emissive or unlit parts rather than a whole lit model.
 - `'auto'` quality waits 2 seconds after start and after `prewarm()` before it judges, ignores single long frames (shader compiles, a tab switch), and lowers only after frames stay over budget for a second.
 - Have your own post processing? Pass `post: false` and render as usual; you lose the built-in bloom and camera shake, and can use `e.shake` from hit events instead.
 - `fx.timeScale` for slow motion, `fx.shake(amount)` and `fx.hitStop(seconds)` to trigger them yourself. To freeze only when something is actually hit, set `hitStopScale: 0` and call `fx.hitStop(e.hitStop)` from your `hit` handler when the hit lands on a target.
@@ -340,7 +341,7 @@ These are the mistakes AI assistants and people make most often:
 1. Import three from `three/webgpu`, never from `three`, and TSL from `three/tsl`. Two copies of three in one page break node materials.
 2. `await renderer.init()` before the first frame.
 3. Call `fx.update(seconds)` and then `fx.render()` every frame (clamp the delta, for example to 0.05 s). `fx.render()` also works with `post: false`; it applies the camera shake only for that render and puts the camera back.
-4. `fx.add()` a definition before calling `fx.play(id)` by its id, or pass the definition itself: `fx.play(effect('nova', 'ice'), { from, to })`.
+4. `fx.add()` a definition before calling `fx.play(id)` by its id, or pass the definition itself: `fx.play(effect('nova', 'ice'), { from, to })`. Passing it is simpler when definitions come and go (per enemy, per placed object): nothing piles up. `fx.has(id)` and `fx.remove(id)` manage the added ones.
 5. Call `await fx.prewarm()` once while loading, otherwise the first cast of each move stutters. For a loading bar, pass a callback that gets 0–1: `fx.prewarm({}, (p) => (progress.value = p))`.
 6. Use a `WebGPURenderer`. The classic `WebGLRenderer` cannot run TSL; `WebGPURenderer` falls back to WebGL2 on its own.
 

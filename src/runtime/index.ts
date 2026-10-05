@@ -14,7 +14,7 @@ export type { StatusOptions, StatusEvent } from './status';
 export type { EffectOptions } from './effect';
 export { MOVES } from './moves';
 export type { MoveTiming } from './moves';
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 
 import type { EffectDef } from './system';
 

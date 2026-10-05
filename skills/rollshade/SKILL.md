@@ -68,7 +68,7 @@ h.on('end', () => {});
 
 ## Moves
 
-`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D` (followed while it moves; `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall.
+`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall.
 
 | recipe | kind | from | to | what happens |
 |---|---|---|---|---|
@@ -146,7 +146,9 @@ const l = fx.loop('barrier', pos); l.impact(p); l.stop();
 
 ## Game patterns
 
-- **Enemy waves:** create one `FXSystem`, add every move once at load, and call `fx.play()` per cast. Never create a new `FXSystem` per cast.
+- **Enemy waves:** create one `FXSystem`, add every move once at load, and call `fx.play()` per cast. Never create a new `FXSystem` per cast. For definitions made per enemy or per placed object, pass the definition to `fx.play()` instead of calling `fx.add()` each time (`fx.remove(id)` forgets added ones).
+- **Moving targets:** `from`, `to` and loop positions are read every frame, whether they are an `Object3D` or a `Vector3` you change in place.
+- **Glowing scenery:** bloom covers only rollshade's effects by default. `fx.glow(crystal)` adds your own bright or emissive object (and its children) to it.
 - **Melee:** move the attacker to about 2 m from the target before `fx.play()`; `from` is the attacker's chest. Attach a sword mesh to `h.blade.base` / `h.blade.tip` if you want one; fist and kick moves put the fist or foot in `h.head` (`h.body.limb` says which). `h.body.offset`, `lean` and `turn` are hints for moving the attacker (`dash` and `tackle` run across the gap), and each hit's `e.dir` is the knockback direction.
 - **No magic:** use the `plain` element (metal sparks and dust only); any element takes `{ color: 0xrrggbb }`.
 - **Warp:** hide the player on `'vanish'`, then `h.on('appear', (e) => player.position.copy(e.point))`. The point is on the ground 0.9–1.8 m in front of `to`, on the caster's side, so pass the enemy as `to`, not a spot beside it.

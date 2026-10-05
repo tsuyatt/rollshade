@@ -365,6 +365,34 @@ export class FXSystem {
     return this;
   }
 
+  has(id: string): boolean {
+    return this.defs.has(id) || this.loopDefs.has(id);
+  }
+
+  remove(...ids: string[]): this {
+    for (const id of ids) {
+      this.defs.delete(id);
+      this.loopDefs.delete(id);
+    }
+    return this;
+  }
+
+  glow(object: THREE.Object3D, on = true): this {
+    if (on === glowing.has(object)) return this;
+    if (on) glowing.add(object);
+    else glowing.delete(object);
+    object.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (!m) return;
+      for (const mat of Array.isArray(m) ? m : [m]) {
+        const tagged = mat as THREE.Material & { rollshadeGlow?: number };
+        tagged.rollshadeGlow = tagged.rollshadeGlow ? 0 : 1;
+        mat.needsUpdate = true;
+      }
+    });
+    return this;
+  }
+
   spawn(effect: string | LoopDef, opts: SpawnOptions = {}): LoopHandle {
     const def = typeof effect === 'string' ? this.loopDefs.get(effect) : effect;
     if (!def) throw new Error(`rollshade: unknown loop "${effect}"`);

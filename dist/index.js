@@ -1,4 +1,4 @@
-// Rollshade FX runtime 0.3.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.4.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
@@ -12344,7 +12344,7 @@ var FXPost = class {
 	}
 	zoomAt(pos, amount) {
 		const s = pos.clone().project(this.camera);
-		this.zoomCenter.value.set(s.x * .5 + .5, s.y * .5 + .5);
+		this.zoomCenter.value.set(s.x * .5 + .5, .5 - s.y * .5);
 		this.zoom = Math.max(this.zoom, amount);
 	}
 	update(dt, realDt) {
@@ -12367,7 +12367,7 @@ var FXPost = class {
 			const c = w.pos.clone().project(cam);
 			const edge = w.pos.clone().addScaledVector(right, Math.max(r, .001)).project(cam);
 			const rs = Math.abs(edge.x - c.x) * .5 * this.aspect.value;
-			v.set(c.x * .5 + .5, c.y * .5 + .5, Math.max(rs, .001), c.z < 1 ? w.strength * .02 * Math.pow(1 - k, 2) : 0);
+			v.set(c.x * .5 + .5, .5 - c.y * .5, Math.max(rs, .001), c.z < 1 ? w.strength * .02 * Math.pow(1 - k, 2) : 0);
 		}
 		this.zoomAmount.value = this.clean ? 0 : this.zoom * .18;
 		this.chroma.value = this.clean ? 0 : .002 + this.aberration * .012;
@@ -14600,7 +14600,7 @@ var FIXTURES = {
 				twist: 1.9,
 				tiles: [6, 1.6],
 				streak: .5,
-				rim: .4,
+				rim: .9,
 				fadeHi: .6,
 				wobble: .1,
 				bright: dark ? .9 : 1,
@@ -14622,7 +14622,7 @@ var FIXTURES = {
 				twist: -1.2,
 				tiles: [8, 2],
 				streak: .7,
-				rim: .2,
+				rim: .85,
 				fadeHi: .55,
 				bright: 1,
 				edge: .12,
@@ -16244,6 +16244,31 @@ var FXSystem = class {
 		} else this.defs.set(d.id, d);
 		return this;
 	}
+	has(id) {
+		return this.defs.has(id) || this.loopDefs.has(id);
+	}
+	remove(...ids) {
+		for (const id of ids) {
+			this.defs.delete(id);
+			this.loopDefs.delete(id);
+		}
+		return this;
+	}
+	glow(object, on = true) {
+		if (on === glowing.has(object)) return this;
+		if (on) glowing.add(object);
+		else glowing.delete(object);
+		object.traverse((o) => {
+			const m = o.material;
+			if (!m) return;
+			for (const mat of Array.isArray(m) ? m : [m]) {
+				const tagged = mat;
+				tagged.rollshadeGlow = tagged.rollshadeGlow ? 0 : 1;
+				mat.needsUpdate = true;
+			}
+		});
+		return this;
+	}
 	spawn(effect, opts = {}) {
 		const def = typeof effect === "string" ? this.loopDefs.get(effect) : effect;
 		if (!def) throw new Error(`rollshade: unknown loop "${effect}"`);
@@ -17626,7 +17651,7 @@ var MOVES = {
 };
 //#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.3.0";
+var VERSION = "0.4.0";
 function defineEffect(def) {
 	return def;
 }

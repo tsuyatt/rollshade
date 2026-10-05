@@ -187,7 +187,7 @@ export class FXPost {
 
   zoomAt(pos: THREE.Vector3, amount: number): void {
     const s = pos.clone().project(this.camera);
-    this.zoomCenter.value.set(s.x * 0.5 + 0.5, s.y * 0.5 + 0.5);
+    this.zoomCenter.value.set(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5);
     this.zoom = Math.max(this.zoom, amount);
   }
 
@@ -211,7 +211,7 @@ export class FXPost {
       const c = w.pos.clone().project(cam);
       const edge = w.pos.clone().addScaledVector(right, Math.max(r, 1e-3)).project(cam);
       const rs = Math.abs(edge.x - c.x) * 0.5 * this.aspect.value;
-      v.set(c.x * 0.5 + 0.5, c.y * 0.5 + 0.5, Math.max(rs, 1e-3), c.z < 1 ? w.strength * 0.02 * Math.pow(1 - k, 2) : 0);
+      v.set(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5, Math.max(rs, 1e-3), c.z < 1 ? w.strength * 0.02 * Math.pow(1 - k, 2) : 0);
     }
     this.zoomAmount.value = this.clean ? 0 : this.zoom * 0.18;
     this.chroma.value = this.clean ? 0 : 0.002 + this.aberration * 0.012;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 (2026-10-05)
+
+- Fixed: the screen ripple from impacts (`fx.post.wave()`) and the zoom blur centre appeared mirrored top to bottom. A hit in the upper left warped the lower left of the screen. Both backends are fixed.
+- `fx.glow(object)` adds your own objects (and their children) to the effects bloom, for glowing crystals, rings and edges; `fx.glow(object, false)` takes them out. Their whole colour goes into the bloom.
+- `fx.has(id)` and `fx.remove(...ids)` for definitions added with `fx.add()`.
+- `aura` is brighter at the outline and thinner in front, so the character inside stays visible with the camera close.
+- Docs: `from`, `to` and loop positions are read every frame, also when they are a `Vector3`, so changing the vector in place moves the effect.
+
 ## 0.3.0 (2026-10-05)
 
 - Bloom now applies only to what rollshade draws (moves, loops, status shells and the glow of statuses on characters). Bright models, floors and skies no longer blow out. `post: { bloom: 'scene' }` brings back bloom on the whole picture. The scene pass writes one more half-float colour target for this, the size of the canvas.

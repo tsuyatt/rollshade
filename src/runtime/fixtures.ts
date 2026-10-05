@@ -648,8 +648,8 @@ const aura: FixtureRecipe = {
     const pulse = () => 1 + 0.15 * Math.sin(run.time.value * 2 * Math.PI * 0.9);
     const fade = () => run.value * pulse();
     const opts = { at: g, dur: hold, fade, erode: () => 0, fadeLo: 0.02 };
-    c.lathe(g(), { ...opts, profile: 'cylinder', radius: 1.15 * r, top: 0.8 * r, height: h * 1.25, flow: 2.6, twist: 1.9, tiles: [6, 1.6], streak: 0.5, rim: 0.4, fadeHi: 0.6, wobble: 0.1, bright: dark ? 0.9 : 1, edge: 0.12, smoke: dark, colors: dark ? ['core', 'smoke', 'smoke'] : undefined });
-    c.lathe(g(), { ...opts, profile: 'cylinder', radius: 0.9 * r, top: 0.5 * r, height: h * 1.4, flow: 3.3, twist: -1.2, tiles: [8, 2], streak: 0.7, rim: 0.2, fadeHi: 0.55, bright: 1, edge: 0.12, wobble: 0.12 });
+    c.lathe(g(), { ...opts, profile: 'cylinder', radius: 1.15 * r, top: 0.8 * r, height: h * 1.25, flow: 2.6, twist: 1.9, tiles: [6, 1.6], streak: 0.5, rim: 0.9, fadeHi: 0.6, wobble: 0.1, bright: dark ? 0.9 : 1, edge: 0.12, smoke: dark, colors: dark ? ['core', 'smoke', 'smoke'] : undefined });
+    c.lathe(g(), { ...opts, profile: 'cylinder', radius: 0.9 * r, top: 0.5 * r, height: h * 1.4, flow: 3.3, twist: -1.2, tiles: [8, 2], streak: 0.7, rim: 0.85, fadeHi: 0.55, bright: 1, edge: 0.12, wobble: 0.12 });
     c.lathe(g(), { ...opts, profile: 'dome', radius: 1.3 * r, height: 0.3, flow: 1.5, tiles: [6, 1], streak: 0.7, rim: 0.5, bright: 0.7 });
     run.pointLight(h * 0.5, 5);
   },

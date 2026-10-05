@@ -1,12 +1,12 @@
-// Rollshade FX runtime 0.3.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.4.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.3.0';
+export declare const VERSION: '0.4.0';
 
-/** A fixed point, or an Object3D whose world position is read every frame. */
+/** A point, or an Object3D whose world position is used. Both are read again every frame, so moving the object or changing the vector in place (`v.copy(p)`) moves the effect with it. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;
 
 export type RecipeName = 'projectile' | 'lance' | 'beam' | 'explosion' | 'pillar' | 'meteor' | 'nova' | 'barrier' | 'shockwave' | 'summon' | 'missiles' | 'tornado' | 'storm' | 'drill' | 'finale' | 'heal' | 'buff' | 'warp' | 'slash' | 'swipe' | 'rising' | 'cleave' | 'combo' | 'wave' | 'dash' | 'flurry' | 'thrust' | 'spin' | 'cross' | 'smash' | 'iaido' | 'strike' | 'rush' | 'uppercut' | 'kick' | 'heel' | 'palm' | 'tackle' | 'pound';
@@ -239,7 +239,13 @@ export declare class FXSystem {
   photosensitive: boolean;
   impactFrames: boolean;
   readonly hitStopping: boolean;
+  /** Registers definitions so `play(id)` finds them. Not needed when you pass the definition to `play()`. */
   add(...defs: (EffectDef | LoopDef)[]): this;
+  has(id: string): boolean;
+  /** Forgets definitions added with `add()`; moves already playing finish. */
+  remove(...ids: string[]): this;
+  /** Adds your own object and its children to the effects bloom (`post` with the default `bloom: 'fx'`), for glowing crystals, rings or edges. Its whole colour goes into the bloom, so pick bright, emissive or unlit parts. `glow(object, false)` takes it out. */
+  glow(object: THREE.Object3D, on?: boolean): this;
   /** Plays a move by id (after `add()`) or from a definition. */
   play(effect: string | EffectDef, options: PlayOptions): FXHandle;
   spawn(effect: string | LoopDef, options?: SpawnOptions): LoopHandle;
