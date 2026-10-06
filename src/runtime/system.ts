@@ -3,7 +3,8 @@ import { LightPool } from './lights';
 import { palette, type Palette } from './palette';
 import { ParticleSystem, emission, flushParticleEvents, nearFade, orthoHalf, screenCap, sizeFloor, tanHalfFov, type ParticleKind } from './particles';
 import { clampParams } from '../core/fx/variation';
-import { FXPost, glowing, type PostOptions } from './post';
+import { FXPost, glowing, type BloomSettings, type PostOptions } from './post';
+import { LOOK, coreWhite, hotWhite, particleAmount, smokeAmount, type LookSettings } from './look';
 import { BOLT_POINTS, PRIM_FACTORIES, PrimPool, disposePrim, RIBBON_LENGTH, RibbonTrail, arcGeometry, stripGeometry } from './prims';
 import { Scheduler } from './scheduler';
 import { helixGeometry } from './shapes';
@@ -53,6 +54,7 @@ export interface FXOptions {
   camera: THREE.Camera;
   renderer: THREE.WebGPURenderer;
   post?: boolean | PostOptions;
+  look?: Partial<LookSettings>;
   feel?: boolean;
   hitStopScale?: number;
   floorY?: number;
@@ -225,6 +227,7 @@ export class FXSystem {
     this.rocks.mask = this.crystals.mask = this.spikes.mask = hidden;
     this.lights.mute = hidden;
     this.post = opts.post ? new FXPost(opts.renderer, opts.scene, opts.camera, opts.post === true ? {} : opts.post) : null;
+    this.setLook({ ...LOOK, ...opts.look });
     this.screenSize = opts.maxScreenSize ?? 0.5;
     this.near = opts.nearFade ? new THREE.Vector2(opts.nearFade[0], opts.nearFade[1]) : NEAR.clone();
     this.frameBudget = opts.frameBudget ?? 1 / 58;
@@ -374,6 +377,29 @@ export class FXSystem {
       this.defs.delete(id);
       this.loopDefs.delete(id);
     }
+    return this;
+  }
+
+  getLook(): LookSettings {
+    return { core: coreWhite.value, hot: hotWhite.value, limit: this.post?.getLimit() ?? LOOK.limit, smoke: smokeAmount.value, particles: particleAmount.value };
+  }
+
+  setLook(settings: Partial<LookSettings>): this {
+    const unit = (v: number) => Math.min(Math.max(v, 0), 1);
+    if (settings.core !== undefined) coreWhite.value = unit(settings.core);
+    if (settings.hot !== undefined) hotWhite.value = unit(settings.hot);
+    if (settings.limit !== undefined) this.post?.setLimit(settings.limit);
+    if (settings.smoke !== undefined) smokeAmount.value = Math.min(Math.max(settings.smoke, 0), 4);
+    if (settings.particles !== undefined) particleAmount.value = Math.min(Math.max(settings.particles, 0), 4);
+    return this;
+  }
+
+  getBloom(): BloomSettings | null {
+    return this.post?.getBloom() ?? null;
+  }
+
+  setBloom(settings: Partial<BloomSettings>): this {
+    this.post?.setBloom(settings);
     return this;
   }
 

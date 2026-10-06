@@ -122,7 +122,7 @@ export const ELEMENT_FX: Record<string, ElementFX> = {
       const B = c.B;
       c.emit('spark', n * 0.7, { p, jitter: 0.05 * s, v: vel(sp * 0.6, sp * 1.6), life: [0.15, 0.45], size: [0.01, 0.022], gravity: 9, drag: 1.4, stretch: 0.04, bounce: 0.25, colors: c.cols('core', 'main'), bright: 2.8 * B, fadeIn: 0 });
       c.emit('shard', n * 0.12, { p, jitter: 0.08 * s, v: vel(sp * 0.3, sp * 0.9), life: [0.4, 0.8], size: [0.02 * s, 0.045 * s], gravity: 9, drag: 1, spin: [-12, 12], bounce: 0.3, colors: [c.pal.main.clone().multiplyScalar(0.8), c.pal.accent, c.pal.accent], bright: 1.1 * B, fadeIn: 0 });
-      c.smoke(p, n * 0.06 * s, { size: [0.22 * s, 0.4 * s], speed: [0.6, 1.6], gravity: -0.2, delay: [0, 0.05] });
+      c.smoke(p, n * 0.06, { size: [0.22 * s, 0.4 * s], speed: [0.6, 1.6], gravity: -0.2, delay: [0, 0.05] });
     },
     trail(c, a) {
       c.emit('spark', rate(a, 60), { p: along(a), jitter: 0.03 * a.s, v: () => back(a, 0.05).add(randomDir().multiplyScalar(0.8)), life: [0.08, 0.2], size: [0.008, 0.014], gravity: 6, stretch: 0.03, colors: c.cols('core', 'main'), bright: 2.2 * c.B, fadeIn: 0 });
@@ -146,7 +146,7 @@ export const ELEMENT_FX: Record<string, ElementFX> = {
       c.emit('flame', n * 0.12, { p, jitter: 0.2 * s, v: vel(sp * 0.05, sp * 0.2), life: [0.5, 0.9], size: [0.45 * s, 0.7 * s], grow: 1.5, gravity: -1.6, drag: 3, curl: 1.2, curlScale: 1.1, colors: c.cols('core', 'main', 'accent'), bright: 1.3 * B, fadeIn: 0.04, fadePow: 1.2, delay: [0, 0.06] });
       c.emit('mist', n * 0.12, { p, jitter: 0.25 * s, v: vel(sp * 0.1, sp * 0.3), life: [0.5, 0.9], size: [0.12 * s, 0.2 * s], gravity: -1.5, drag: 2, curl: 2.4, curlScale: 1.8, stretch: 0.14, colors: c.cols('main', 'accent'), bright: 1.4 * B, fadeIn: 0.05 });
       c.emit('mote', n * 0.15, { p, jitter: 0.2 * s, v: vel(sp * 0.1, sp * 0.4), life: [0.8, 1.6], size: [0.02, 0.035], gravity: -0.8, drag: 1.5, curl: 2.2, curlScale: 2, flicker: 0.6, colors: c.cols('core', 'main'), bright: 2.4 * B });
-      c.smoke(p, n * 0.12 * s, { size: [0.35 * s, 0.6 * s], delay: [0.08, 0.25], curl: 0.9, curlScale: 1.2, dissolve: 0.6 });
+      c.smoke(p, n * 0.12, { size: [0.35 * s, 0.6 * s], delay: [0.08, 0.25], curl: 0.9, curlScale: 1.2, dissolve: 0.6 });
     },
     trail(c, a) {
       const B = c.B;

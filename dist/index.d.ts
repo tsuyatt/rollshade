@@ -1,10 +1,10 @@
-// Rollshade FX runtime 0.4.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.5.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.4.0';
+export declare const VERSION: '0.5.0';
 
 /** A point, or an Object3D whose world position is used. Both are read again every frame, so moving the object or changing the vector in place (`v.copy(p)`) moves the effect with it. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;
@@ -62,8 +62,10 @@ export interface FXOptions {
   scene: THREE.Scene;
   camera: THREE.Camera;
   renderer: THREE.WebGPURenderer;
-  /** Bloom and screen distortion; then call `fx.render()` instead of `renderer.render()`. Off by default. Bloom applies to rollshade's effects only; `bloom: 'scene'` blooms the whole picture. */
+  /** Bloom and screen distortion; then call `fx.render()` instead of `renderer.render()`. Off by default. Bloom applies to rollshade's effects only; `bloom: 'scene'` blooms the whole picture. `strength`, `radius` and `threshold` default to `BLOOM` (0.3, 0.25, 0.45); `fx.setBloom()` changes them later. */
   post?: boolean | { strength?: number; radius?: number; threshold?: number; bloom?: 'fx' | 'scene' };
+  /** How white the effects look and how many particles and how much smoke they make; see `LookSettings`. Defaults to `LOOK`. */
+  look?: Partial<LookSettings>;
   /** Camera shake, hit-stop and chromatic aberration on hits. Off by default. */
   feel?: boolean;
   /** Multiplies the automatic hit-stop; 0 turns it off. Default 1. */
@@ -246,6 +248,14 @@ export declare class FXSystem {
   remove(...ids: string[]): this;
   /** Adds your own object and its children to the effects bloom (`post` with the default `bloom: 'fx'`), for glowing crystals, rings or edges. Its whole colour goes into the bloom, so pick bright, emissive or unlit parts. `glow(object, false)` takes it out. */
   glow(object: THREE.Object3D, on?: boolean): this;
+  /** Current look settings. */
+  getLook(): LookSettings;
+  /** Changes how white the effects look and how many particles they make while running (`fx.setLook({ core: 0.5, particles: 0.5 })`). `core`, `hot`, `smoke` and `particles` apply to every FXSystem on the page, and `core` reaches effects started after the call. */
+  setLook(settings: Partial<LookSettings>): this;
+  /** Current bloom settings; null with `post: false`. */
+  getBloom(): BloomSettings | null;
+  /** Changes the bloom while running, for a settings menu (`fx.setBloom({ strength: 0.3 })`). Lower `strength` for less glow, raise `threshold` so only the brightest parts glow. No effect with `post: false`. */
+  setBloom(settings: Partial<BloomSettings>): this;
   /** Plays a move by id (after `add()`) or from a definition. */
   play(effect: string | EffectDef, options: PlayOptions): FXHandle;
   spawn(effect: string | LoopDef, options?: SpawnOptions): LoopHandle;
@@ -270,6 +280,35 @@ export declare class FXSystem {
   /** Frees GPU resources; the system cannot be used afterwards. */
   dispose(): void;
 }
+
+export interface BloomSettings {
+  /** How strong the glow is. Default 0.3. */
+  strength: number;
+  /** How far it spreads, 0–1. Default 0.25. */
+  radius: number;
+  /** Brightness where the glow starts. Default 0.45. */
+  threshold: number;
+}
+
+/** The default bloom settings. */
+export declare const BLOOM: Readonly<BloomSettings>;
+
+/** How white the effects look and how many particles and how much smoke they make. `{ core: 1, hot: 1, limit: 0, smoke: 1, particles: 1 }` is the look of 0.4 and earlier. */
+export interface LookSettings {
+  /** How white the centre colour of every element is: 1 is the element's own near-white core, 0 is its main colour. Default 0.1. */
+  core: number;
+  /** How much the brightest parts of particles turn white, 0–1. Default 0.2. */
+  hot: number;
+  /** Brightness where overlapping effects stop getting brighter and keep their colour instead of turning white; 0 is no cap. Needs `post` with the default `bloom: 'fx'`. Default 1.5. */
+  limit: number;
+  /** How much smoke every effect, status and loop makes: 0 is none, up to 4. Applies to smoke emitted after the call. Default 0.2. */
+  smoke: number;
+  /** How many particles of every kind (flames, sparks, smoke…) effects emit, 0–4; multiplies with `smoke` and the automatic quality. Applies to particles emitted after the call. Default 0.25. */
+  particles: number;
+}
+
+/** The default look settings. */
+export declare const LOOK: Readonly<LookSettings>;
 
 /** Hits of a move's default definition, measured at `distance` metres without hit-stop. Seeds and params change them. */
 export interface MoveTiming {

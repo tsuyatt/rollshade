@@ -13,8 +13,12 @@ export { StatusRun } from './status';
 export type { StatusOptions, StatusEvent } from './status';
 export type { EffectOptions } from './effect';
 export { MOVES } from './moves';
+export { BLOOM } from './post';
+export { LOOK } from './look';
+export type { LookSettings } from './look';
+export type { BloomSettings } from './post';
 export type { MoveTiming } from './moves';
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 
 import type { EffectDef } from './system';
 

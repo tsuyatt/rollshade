@@ -15,6 +15,14 @@ export interface PostOptions {
   bloom?: BloomScope;
 }
 
+export interface BloomSettings {
+  strength: number;
+  radius: number;
+  threshold: number;
+}
+
+export const BLOOM: Readonly<BloomSettings> = { strength: 0.3, radius: 0.25, threshold: 0.45 };
+
 export const glowing = new WeakSet<THREE.Object3D>();
 
 const glowFlag: N = uniform(0).onObjectUpdate(({ object }) => {
@@ -48,6 +56,7 @@ export class FXPost {
   readonly bloom: N;
   private readonly loopSceneBloom: N;
   private readonly loopBloom: N;
+  private loopBase: BloomSettings | null = null;
   private waves: Wave[] = [];
   private waveData = Array.from({ length: WAVES }, () => new THREE.Vector4());
   private waveU: N;
@@ -60,6 +69,7 @@ export class FXPost {
   private flashColor = uniform(new THREE.Color(1, 1, 1));
   private time = uniform(0);
   private vignette = uniform(0.55);
+  private limit = uniform(0);
   readonly scope: BloomScope;
   loopBloomUsed = false;
   clean = false;
@@ -134,9 +144,22 @@ export class FXPost {
         const target: N = float(knee).add(e.div(e.div(knee).add(1)));
         return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
       })();
-    const compressed = compress(look(scenePass.getTextureNode('output'), this.chroma));
-    const source = this.scope === 'fx' ? compress(look(scenePass.getTextureNode('glow'), this.chroma)) : compressed;
-    return { compressed, bloom: bloom(source, opts.strength ?? 0.8, opts.radius ?? 0.25, opts.threshold ?? 0.45) };
+    const base: N = look(scenePass.getTextureNode('output'), this.chroma);
+    if (this.scope !== 'fx') {
+      const compressed = compress(base);
+      return { compressed, bloom: bloom(compressed, opts.strength ?? BLOOM.strength, opts.radius ?? BLOOM.radius, opts.threshold ?? BLOOM.threshold) };
+    }
+    const fx: N = look(scenePass.getTextureNode('glow'), this.chroma);
+    const capped = Fn(() => {
+      const l: N = max(max(fx.r, fx.g), fx.b);
+      const k: N = this.limit.mul(0.6);
+      const e: N = max(l.sub(k), 0);
+      const target: N = k.add(e.div(e.div(this.limit.sub(k)).add(1)));
+      return fx.mul(select(this.limit.greaterThan(0).and(l.greaterThan(k)), target.div(max(l, 1e-4)), float(1)));
+    })();
+    const compressed = compress(base.sub(fx).add(capped));
+    const source = compress(capped);
+    return { compressed, bloom: bloom(source, opts.strength ?? BLOOM.strength, opts.radius ?? BLOOM.radius, opts.threshold ?? BLOOM.threshold) };
   }
 
   private finish(sum: N): N {
@@ -154,12 +177,32 @@ export class FXPost {
     })();
   }
 
-  setLoopBloom(b: { strength: number; radius: number; threshold: number } | null): void {
-    this.loopBloom.strength.value = b ? b.strength : 0;
+  setLoopBloom(b: BloomSettings | null): void {
+    this.loopBase = b;
+    this.loopBloom.strength.value = b ? (b.strength * this.bloom.strength.value) / BLOOM.strength : 0;
     if (b) {
       this.loopBloom.radius.value = b.radius;
       this.loopBloom.threshold.value = b.threshold;
     }
+  }
+
+  setLimit(limit: number): void {
+    this.limit.value = Math.max(limit, 0);
+  }
+
+  getLimit(): number {
+    return this.limit.value;
+  }
+
+  getBloom(): BloomSettings {
+    return { strength: this.bloom.strength.value, radius: this.bloom.radius.value, threshold: this.bloom.threshold.value };
+  }
+
+  setBloom(b: Partial<BloomSettings>): void {
+    if (b.strength !== undefined) this.bloom.strength.value = Math.max(b.strength, 0);
+    if (b.radius !== undefined) this.bloom.radius.value = Math.min(Math.max(b.radius, 0), 1);
+    if (b.threshold !== undefined) this.bloom.threshold.value = Math.max(b.threshold, 0);
+    this.setLoopBloom(this.loopBase);
   }
 
   setSamples(samples: number): void {

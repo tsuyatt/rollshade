@@ -5,6 +5,7 @@ import { RIBBON_LENGTH, RibbonTrail, arcGeometry, stripGeometry, type Prim } fro
 import { helixGeometry, type HelixOptions } from './shapes';
 import { CIRCLES, elementFX, type ElementFX } from './elements';
 import type { HeldLight } from './lights';
+import { smokeAmount } from './look';
 import type { Anchor, EffectDef, FXHandle, FXSystem, HitEvent, HitRole, PlayOptions } from './system';
 
 export const ease = {
@@ -186,7 +187,7 @@ export class Ctx {
 
   emit(kind: ParticleKind, n: number, o: EmitOptions): void {
     if (this.hidden) return;
-    this.fx.particles[kind].emit(n, { floor: this.floor, ...o });
+    this.fx.particles[kind].emit(kind === 'smoke' ? n * smokeAmount.value : n, { floor: this.floor, ...o });
   }
 
   hook(h: Hook): Hook {

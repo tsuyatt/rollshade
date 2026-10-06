@@ -1,4 +1,4 @@
-// Rollshade FX runtime 0.4.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.5.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
@@ -93,6 +93,19 @@ var LightPool = class {
 	}
 };
 //#endregion
+//#region src/runtime/look.ts
+var LOOK = {
+	core: .1,
+	hot: .2,
+	limit: 1.5,
+	smoke: .2,
+	particles: .25
+};
+var coreWhite = { value: LOOK.core };
+var smokeAmount = { value: LOOK.smoke };
+var particleAmount = { value: LOOK.particles };
+var hotWhite = uniform(LOOK.hot);
+//#endregion
 //#region src/runtime/palette.ts
 var ELEMENTS = {
 	plain: {
@@ -169,14 +182,14 @@ function palette(element, hueShift = 0, color) {
 	if (color != null) {
 		const main = new Color(color);
 		return {
-			core: shift(main.clone().lerp(WHITE, .82)),
+			core: shift(main.clone().lerp(main.clone().lerp(WHITE, .82), coreWhite.value)),
 			main: shift(main.clone()),
 			accent: shift(main.clone().multiplyScalar(.3)),
 			smoke: e.smoke == null ? null : shift(new Color(e.smoke))
 		};
 	}
 	return {
-		core: shift(new Color(e.core)),
+		core: shift(new Color(e.main).lerp(new Color(e.core), coreWhite.value)),
 		main: shift(new Color(e.main)),
 		accent: shift(new Color(e.accent)),
 		smoke: e.smoke == null ? null : shift(new Color(e.smoke))
@@ -488,7 +501,7 @@ var ParticleSystem = class {
 		this.mesh.renderOrder = kind === "smoke" || kind === "haze" ? 1 : 2;
 	}
 	emit(n, o) {
-		const scaled = this.kind === "star" || this.kind === "flare" || n === 1 && (this.kind === "glow" || this.kind === "mist") ? n : n * emission.scale;
+		const scaled = this.kind === "star" || this.kind === "flare" || n === 1 && (this.kind === "glow" || this.kind === "mist") ? n : n * emission.scale * particleAmount.value;
 		const total = Math.floor(scaled) + (Math.random() < scaled - Math.floor(scaled) ? 1 : 0);
 		for (let k = 0; k < total; k++) {
 			let i;
@@ -853,7 +866,7 @@ function particleMaterial(kind, a, b, c, d) {
 	const q = uv().mul(2).sub(1);
 	const d2 = q.dot(q);
 	const dist = d2.sqrt();
-	const peak = (rgb) => vec3(max(max(rgb.x, rgb.y), rgb.z));
+	const peak = (rgb) => mix(rgb, vec3(max(max(rgb.x, rgb.y), rgb.z)), hotWhite);
 	const offs = vec2(fract(info.y.mul(7.13)), fract(info.y.mul(3.71)));
 	const noise = (scale, drift) => texture(noiseTex, q.mul(scale / 4).add(offs).add(vec2(.7, .45).mul(info.z.mul(drift / 4))));
 	const evolving = (scale, drift) => {
@@ -2507,7 +2520,7 @@ var ELEMENT_FX = {
 				bright: 1.1 * B,
 				fadeIn: 0
 			});
-			c.smoke(p, n * .06 * s, {
+			c.smoke(p, n * .06, {
 				size: [.22 * s, .4 * s],
 				speed: [.6, 1.6],
 				gravity: -.2,
@@ -2646,7 +2659,7 @@ var ELEMENT_FX = {
 				colors: c.cols("core", "main"),
 				bright: 2.4 * B
 			});
-			c.smoke(p, n * .12 * s, {
+			c.smoke(p, n * .12, {
 				size: [.35 * s, .6 * s],
 				delay: [.08, .25],
 				curl: .9,
@@ -4025,7 +4038,7 @@ var Ctx = class {
 	}
 	emit(kind, n, o) {
 		if (this.hidden) return;
-		this.fx.particles[kind].emit(n, {
+		this.fx.particles[kind].emit(kind === "smoke" ? n * smokeAmount.value : n, {
 			floor: this.floor,
 			...o
 		});
@@ -12176,6 +12189,11 @@ var helpers = {
 //#endregion
 //#region src/runtime/post.ts
 var WAVES = 8;
+var BLOOM = {
+	strength: .3,
+	radius: .25,
+	threshold: .45
+};
 var glowing = /* @__PURE__ */ new WeakSet();
 var glowFlag = uniform(0).onObjectUpdate(({ object }) => {
 	if (!object) return 0;
@@ -12199,6 +12217,7 @@ var FXPost = class {
 	bloom;
 	loopSceneBloom;
 	loopBloom;
+	loopBase = null;
 	waves = [];
 	waveData = Array.from({ length: WAVES }, () => new THREE.Vector4());
 	waveU;
@@ -12211,6 +12230,7 @@ var FXPost = class {
 	flashColor = uniform(new THREE.Color(1, 1, 1));
 	time = uniform(0);
 	vignette = uniform(.55);
+	limit = uniform(0);
 	scope;
 	loopBloomUsed = false;
 	clean = false;
@@ -12289,11 +12309,27 @@ var FXPost = class {
 			const target = float(knee).add(e.div(e.div(knee).add(1)));
 			return vec4(c.mul(select(l.greaterThan(knee), target.div(max(l, 1e-4)), float(1))), 1);
 		})();
-		const compressed = compress(look(scenePass.getTextureNode("output"), this.chroma));
-		const source = this.scope === "fx" ? compress(look(scenePass.getTextureNode("glow"), this.chroma)) : compressed;
+		const base = look(scenePass.getTextureNode("output"), this.chroma);
+		if (this.scope !== "fx") {
+			const compressed = compress(base);
+			return {
+				compressed,
+				bloom: bloom(compressed, opts.strength ?? BLOOM.strength, opts.radius ?? BLOOM.radius, opts.threshold ?? BLOOM.threshold)
+			};
+		}
+		const fx = look(scenePass.getTextureNode("glow"), this.chroma);
+		const capped = Fn(() => {
+			const l = max(max(fx.r, fx.g), fx.b);
+			const k = this.limit.mul(.6);
+			const e = max(l.sub(k), 0);
+			const target = k.add(e.div(e.div(this.limit.sub(k)).add(1)));
+			return fx.mul(select(this.limit.greaterThan(0).and(l.greaterThan(k)), target.div(max(l, 1e-4)), float(1)));
+		})();
+		const compressed = compress(base.sub(fx).add(capped));
+		const source = compress(capped);
 		return {
 			compressed,
-			bloom: bloom(source, opts.strength ?? .8, opts.radius ?? .25, opts.threshold ?? .45)
+			bloom: bloom(source, opts.strength ?? BLOOM.strength, opts.radius ?? BLOOM.radius, opts.threshold ?? BLOOM.threshold)
 		};
 	}
 	finish(sum) {
@@ -12311,11 +12347,31 @@ var FXPost = class {
 		})();
 	}
 	setLoopBloom(b) {
-		this.loopBloom.strength.value = b ? b.strength : 0;
+		this.loopBase = b;
+		this.loopBloom.strength.value = b ? b.strength * this.bloom.strength.value / BLOOM.strength : 0;
 		if (b) {
 			this.loopBloom.radius.value = b.radius;
 			this.loopBloom.threshold.value = b.threshold;
 		}
+	}
+	setLimit(limit) {
+		this.limit.value = Math.max(limit, 0);
+	}
+	getLimit() {
+		return this.limit.value;
+	}
+	getBloom() {
+		return {
+			strength: this.bloom.strength.value,
+			radius: this.bloom.radius.value,
+			threshold: this.bloom.threshold.value
+		};
+	}
+	setBloom(b) {
+		if (b.strength !== void 0) this.bloom.strength.value = Math.max(b.strength, 0);
+		if (b.radius !== void 0) this.bloom.radius.value = Math.min(Math.max(b.radius, 0), 1);
+		if (b.threshold !== void 0) this.bloom.threshold.value = Math.max(b.threshold, 0);
+		this.setLoopBloom(this.loopBase);
 	}
 	setSamples(samples) {
 		for (const p of [this.scenePass, this.loopScenePass]) {
@@ -16120,6 +16176,10 @@ var FXSystem = class {
 		this.rocks.mask = this.crystals.mask = this.spikes.mask = hidden;
 		this.lights.mute = hidden;
 		this.post = opts.post ? new FXPost(opts.renderer, opts.scene, opts.camera, opts.post === true ? {} : opts.post) : null;
+		this.setLook({
+			...LOOK,
+			...opts.look
+		});
 		this.screenSize = opts.maxScreenSize ?? .5;
 		this.near = opts.nearFade ? new THREE.Vector2(opts.nearFade[0], opts.nearFade[1]) : NEAR.clone();
 		this.frameBudget = opts.frameBudget ?? 1 / 58;
@@ -16252,6 +16312,31 @@ var FXSystem = class {
 			this.defs.delete(id);
 			this.loopDefs.delete(id);
 		}
+		return this;
+	}
+	getLook() {
+		return {
+			core: coreWhite.value,
+			hot: hotWhite.value,
+			limit: this.post?.getLimit() ?? LOOK.limit,
+			smoke: smokeAmount.value,
+			particles: particleAmount.value
+		};
+	}
+	setLook(settings) {
+		const unit = (v) => Math.min(Math.max(v, 0), 1);
+		if (settings.core !== void 0) coreWhite.value = unit(settings.core);
+		if (settings.hot !== void 0) hotWhite.value = unit(settings.hot);
+		if (settings.limit !== void 0) this.post?.setLimit(settings.limit);
+		if (settings.smoke !== void 0) smokeAmount.value = Math.min(Math.max(settings.smoke, 0), 4);
+		if (settings.particles !== void 0) particleAmount.value = Math.min(Math.max(settings.particles, 0), 4);
+		return this;
+	}
+	getBloom() {
+		return this.post?.getBloom() ?? null;
+	}
+	setBloom(settings) {
+		this.post?.setBloom(settings);
 		return this;
 	}
 	glow(object, on = true) {
@@ -16746,28 +16831,33 @@ var MOVES = {
 	},
 	meteor: {
 		distance: 6,
-		hits: 4,
-		hitRange: [2, 5],
-		power: 7.69,
-		first: 1.24,
+		hits: 5,
+		hitRange: [3, 6],
+		power: 9.38,
+		first: 1.35,
 		last: 2.17,
 		end: 3.17,
 		perMetre: 0,
 		lastPerMetre: 0,
 		timeline: [
 			[
-				1.24,
-				2.11,
+				1.35,
+				2.2,
 				"first"
 			],
 			[
-				1.74,
-				1.66,
+				1.79,
+				2.11,
 				"link"
 			],
 			[
 				1.82,
-				2.02,
+				1.57,
+				"link"
+			],
+			[
+				1.84,
+				1.6,
 				"link"
 			],
 			[
@@ -16842,34 +16932,34 @@ var MOVES = {
 		hits: 16,
 		hitRange: [16, 16],
 		power: 4.3,
-		first: 1.75,
-		last: 2.66,
-		end: 3.17,
+		first: 1.72,
+		last: 2.67,
+		end: 3.18,
 		perMetre: .03,
-		lastPerMetre: .05,
+		lastPerMetre: .08,
 		timeline: [
 			[
-				1.75,
+				1.72,
 				.2,
 				"first"
 			],
 			[
-				1.85,
+				1.75,
 				.2,
 				"link"
 			],
 			[
-				1.86,
+				1.82,
 				.2,
 				"link"
 			],
 			[
-				1.86,
+				1.82,
 				.2,
 				"link"
 			],
 			[
-				2.04,
+				1.89,
 				.2,
 				"link"
 			],
@@ -16879,52 +16969,52 @@ var MOVES = {
 				"link"
 			],
 			[
-				2.09,
+				2.11,
 				.2,
 				"link"
 			],
 			[
-				2.14,
+				2.13,
 				.2,
 				"link"
 			],
 			[
-				2.24,
+				2.13,
 				.2,
 				"link"
 			],
 			[
-				2.25,
+				2.29,
 				.2,
 				"link"
 			],
 			[
-				2.26,
+				2.39,
 				.2,
 				"link"
 			],
 			[
-				2.38,
+				2.48,
 				.2,
 				"link"
 			],
 			[
-				2.57,
+				2.53,
 				.2,
 				"link"
 			],
 			[
-				2.58,
+				2.65,
 				.2,
 				"link"
 			],
 			[
-				2.64,
+				2.65,
 				.2,
 				"link"
 			],
 			[
-				2.66,
+				2.67,
 				1.23,
 				"final"
 			]
@@ -16935,44 +17025,44 @@ var MOVES = {
 		hits: 8,
 		hitRange: [8, 8],
 		power: 6.08,
-		first: 1.11,
+		first: 1.09,
 		last: 3.03,
 		end: 3.63,
 		perMetre: .04,
 		lastPerMetre: 0,
 		timeline: [
 			[
-				1.11,
+				1.09,
 				.67,
 				"tick"
 			],
 			[
-				1.42,
+				1.4,
 				.67,
 				"tick"
 			],
 			[
-				1.72,
+				1.7,
 				.67,
 				"tick"
 			],
 			[
-				2.02,
+				2,
 				.67,
 				"tick"
 			],
 			[
-				2.33,
+				2.31,
 				.67,
 				"tick"
 			],
 			[
-				2.63,
+				2.61,
 				.67,
 				"tick"
 			],
 			[
-				2.93,
+				2.91,
 				.67,
 				"tick"
 			],
@@ -16986,11 +17076,11 @@ var MOVES = {
 	storm: {
 		distance: 6,
 		hits: 4,
-		hitRange: [2, 5],
+		hitRange: [2, 6],
 		power: 4.63,
 		first: .93,
 		last: 3.93,
-		end: 5.05,
+		end: 4.95,
 		perMetre: 0,
 		lastPerMetre: 0,
 		timeline: [
@@ -17000,12 +17090,12 @@ var MOVES = {
 				"tick"
 			],
 			[
-				1.16,
+				1.81,
 				.86,
 				"tick"
 			],
 			[
-				2.97,
+				2.2,
 				.86,
 				"tick"
 			],
@@ -17441,7 +17531,7 @@ var MOVES = {
 		last: .57,
 		end: .98,
 		perMetre: 0,
-		lastPerMetre: .07,
+		lastPerMetre: .05,
 		timeline: [
 			[
 				.48,
@@ -17651,9 +17741,9 @@ var MOVES = {
 };
 //#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.4.0";
+var VERSION = "0.5.0";
 function defineEffect(def) {
 	return def;
 }
 //#endregion
-export { BLUNT, ELEMENTS, EVENT, FIXTURES, FXHandle, FXSystem, FixtureRun, LoopHandle, MELEE, MOVES, RECIPES, SELF, STATUSES, SUPPORT, StatusRun, VERSION, defineEffect, defineLoop, effect, helpers };
+export { BLOOM, BLUNT, ELEMENTS, EVENT, FIXTURES, FXHandle, FXSystem, FixtureRun, LOOK, LoopHandle, MELEE, MOVES, RECIPES, SELF, STATUSES, SUPPORT, StatusRun, VERSION, defineEffect, defineLoop, effect, helpers };

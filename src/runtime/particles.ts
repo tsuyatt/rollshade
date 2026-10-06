@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { NOISE_PERIOD, noiseTexture } from './noise';
+import { hotWhite, particleAmount } from './look';
 import {
   Fn,
   abs,
@@ -340,7 +341,7 @@ export class ParticleSystem {
   }
 
   emit(n: number, o: EmitOptions): void {
-    const scaled = this.kind === 'star' || this.kind === 'flare' || (n === 1 && (this.kind === 'glow' || this.kind === 'mist')) ? n : n * emission.scale;
+    const scaled = this.kind === 'star' || this.kind === 'flare' || (n === 1 && (this.kind === 'glow' || this.kind === 'mist')) ? n : n * emission.scale * particleAmount.value;
     const total = Math.floor(scaled) + (Math.random() < scaled - Math.floor(scaled) ? 1 : 0);
     for (let k = 0; k < total; k++) {
       let i: number;
@@ -696,7 +697,7 @@ function particleMaterial(kind: ParticleKind, a: THREE.InstancedBufferAttribute,
   const q: N = uv().mul(2).sub(1);
   const d2: N = q.dot(q);
   const dist: N = d2.sqrt();
-  const peak = (rgb: N): N => vec3(max(max(rgb.x, rgb.y), rgb.z));
+  const peak = (rgb: N): N => mix(rgb, vec3(max(max(rgb.x, rgb.y), rgb.z)), hotWhite);
   const offs: N = vec2(fract(info.y.mul(7.13)), fract(info.y.mul(3.71)));
   const noise = (scale: number, drift: number): N => texture(noiseTex, q.mul(scale / NOISE_PERIOD).add(offs).add(vec2(0.7, 0.45).mul(info.z.mul(drift / NOISE_PERIOD))));
   const evolving = (scale: number, drift: number): N => {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 (2026-10-06)
+
+- Softer bloom by default: `strength` 0.8 → 0.3. Pass `post: { strength: 0.8 }` for the old look.
+- Less white by default: `look: { core, hot, limit }` and `fx.setLook()` control how white the effects look: the centre colour of each element, the white of the brightest parts, and a brightness cap that keeps colour where effects overlap instead of turning white (with `post`). The defaults are now `{ core: 0.1, hot: 0.2, limit: 1.5 }`; pass `look: { core: 1, hot: 1, limit: 0 }` for the old look. The Motion mode has sliders for them and writes them into the code.
+- Fewer particles and less smoke by default: `look: { particles }` scales the number of particles of every kind (default 0.25) and `look: { smoke }` the smoke (default 0.2, 0 = none), in the options or with `fx.setLook()`. Pass `look: { smoke: 1, particles: 1 }` for the old amount. The Motion mode has sliders for both.
+- Fixed: the smoke from fire and plain impacts grew with the square of `scale`; it now grows in step with it.
+- `fx.getLook()` reads the current look settings and `LOOK` holds the defaults.
+- `fx.setBloom({ strength, radius, threshold })` changes the bloom while running, for example from a settings menu; `fx.getBloom()` reads it and `BLOOM` holds the defaults. Loops made with `defineLoop` that bring their own bloom scale with `strength`.
+
 ## 0.4.0 (2026-10-05)
 
 - Fixed: the screen ripple from impacts (`fx.post.wave()`) and the zoom blur centre appeared mirrored top to bottom. A hit in the upper left warped the lower left of the screen. Both backends are fixed.

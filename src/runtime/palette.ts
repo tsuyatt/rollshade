@@ -1,4 +1,5 @@
 import { Color, type ColorRepresentation } from 'three/webgpu';
+import { coreWhite } from './look';
 
 export interface Palette {
   core: Color;
@@ -30,7 +31,7 @@ export function palette(element: string, hueShift = 0, color?: ColorRepresentati
   const shift = (c: Color) => (hueShift ? c.offsetHSL(hueShift, 0, 0) : c);
   if (color != null) {
     const main = new Color(color);
-    return { core: shift(main.clone().lerp(WHITE, 0.82)), main: shift(main.clone()), accent: shift(main.clone().multiplyScalar(0.3)), smoke: e.smoke == null ? null : shift(new Color(e.smoke)) };
+    return { core: shift(main.clone().lerp(main.clone().lerp(WHITE, 0.82), coreWhite.value)), main: shift(main.clone()), accent: shift(main.clone().multiplyScalar(0.3)), smoke: e.smoke == null ? null : shift(new Color(e.smoke)) };
   }
-  return { core: shift(new Color(e.core)), main: shift(new Color(e.main)), accent: shift(new Color(e.accent)), smoke: e.smoke == null ? null : shift(new Color(e.smoke)) };
+  return { core: shift(new Color(e.main).lerp(new Color(e.core), coreWhite.value)), main: shift(new Color(e.main)), accent: shift(new Color(e.accent)), smoke: e.smoke == null ? null : shift(new Color(e.smoke)) };
 }

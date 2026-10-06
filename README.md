@@ -163,14 +163,14 @@ MOVES.combo.timeline;  // [[seconds after fx.play(), power, role], …]
 | `beam` | 7 | 3.88 | 0.4 → 1.3 | — | 1.8 |
 | `explosion` | 1 | 1.98 | 0.45 | — | 1.45 |
 | `pillar` | 1 | 1.58 | 0.33 | — | 1.82 |
-| `meteor` | 2–5 | 7.69 | 1.24 → 2.17 | — | 3.17 |
+| `meteor` | 3–6 | 9.38 | 1.35 → 2.17 | — | 3.17 |
 | `nova` | 1 | 1.37 | 0.81 | +0.02 | 1.54 |
 | `barrier` | 0 | — | — | — | 2.91 |
 | `shockwave` | 1 | 1.09 | 0.85 | +0.1 | 1.35 |
 | `summon` | 1 | 2.22 | 1.36 | — | 1.97 |
-| `missiles` | 16 | 4.3 | 1.75 → 2.66 | +0.03 → +0.05 | 3.17 |
-| `tornado` | 8 | 6.08 | 1.11 → 3.03 | +0.04 → 0 | 3.63 |
-| `storm` | 2–5 | 4.63 | 0.93 → 3.93 | — | 5.05 |
+| `missiles` | 16 | 4.3 | 1.72 → 2.67 | +0.03 → +0.08 | 3.18 |
+| `tornado` | 8 | 6.08 | 1.09 → 3.03 | +0.04 → 0 | 3.63 |
+| `storm` | 2–6 | 4.63 | 0.93 → 3.93 | — | 4.95 |
 | `drill` | 12 | 9.27 | 0.92 → 1.76 | +0.09 | 2.27 |
 | `finale` | 6 | 4.95 | 0.25 → 1.52 | — | 3.03 |
 | `heal` | 1 | 0 | 0.62 | — | 2.93 |
@@ -187,7 +187,7 @@ MOVES.combo.timeline;  // [[seconds after fx.play(), power, role], …]
 | `thrust` | 1 | 1.07 | 0.21 | — | 0.72 |
 | `spin` | 1 | 0.89 | 0.27 | — | 0.91 |
 | `cross` | 3 | 2.81 | 0.14 → 0.63 | — | 1.13 |
-| `smash` | 3 | 3.11 | 0.48 → 0.57 | 0 → +0.07 | 0.98 |
+| `smash` | 3 | 3.11 | 0.48 → 0.57 | 0 → +0.05 | 0.98 |
 | `iaido` | 2 | 2.88 | 0.52 → 0.9 | — | 1.4 |
 | `strike` | 2 | 1.89 | 0.22 → 0.39 | — | 0.94 |
 | `rush` | 7 | 3.09 | 0.2 → 0.74 | — | 1.32 |
@@ -313,7 +313,9 @@ function Caster() {
 new FXSystem({
   scene, camera, renderer,
   post: true,            // bloom + distortion; call fx.render() instead of renderer.render() (off by default)
+                         // { strength: 0.3, radius: 0.25, threshold: 0.45 } tunes the bloom (these are the defaults)
                          // { bloom: 'scene' } blooms everything bright on screen, not only the effects
+  look: { core: 0.1, hot: 0.2, limit: 1.5, smoke: 0.2, particles: 0.25 }, // how white the effects look, how much smoke and how many particles (these are the defaults, see below)
   feel: true,            // camera shake, hit-stop and chromatic aberration on hits (off by default)
   hitStopScale: 1,       // 0.5 halves the automatic hit-stop, 0 turns it off (then call fx.hitStop(e.hitStop) yourself)
   floorY: 0,             // height of the flat ground: debris, decals, dust and ground effects land on it
@@ -326,6 +328,16 @@ new FXSystem({
 - Heavy scenes: `fx.setQuality('low')` renders the scene at 55% resolution with fewer particles (`'medium'`: 75%), or set `fx.renderScale` (0.25–1) directly; `'auto'` does this only while frames run over budget and raises it again. Render scale works with `post: true`.
 - High-DPI screens: with `post: true` the scene pass multisamples like your renderer. `new WebGPURenderer({ antialias: devicePixelRatio < 1.5 })` skips MSAA where the extra pixels already hide jagged edges, which saves about 48 bytes of GPU memory per pixel (about 250 MB on a 2880×1800 canvas) and some GPU time.
 - Bloom touches only what rollshade draws: moves, loops, status shells and the glow of statuses on characters. Your models, floor and sky keep their brightness, however bright they are. `post: { bloom: 'scene' }` blooms the whole picture instead (the behaviour before 0.3.0); `strength`, `radius` and `threshold` tune it in both modes.
+- Too much glow, or a brightness option in your settings menu: `fx.setBloom({ strength: 0.2 })` changes the bloom while the game runs (`threshold` up keeps the glow to the brightest parts), `fx.getBloom()` reads it, and `BLOOM` holds the defaults. With React, call it on `useFX()` rather than changing `post` on `<FX>`, which rebuilds the system.
+- How the effects look: `look` at creation, or `fx.setLook()` while the game runs (with React, on `useFX()`), with `fx.getLook()` to read it and `LOOK` for the defaults.
+  - `core` (0–1, default 0.1) is how white the centre colour of every element is; 0 is the element's own colour.
+  - `hot` (0–1, default 0.2) is how much the brightest parts of particles turn white.
+  - `limit` (default 1.5) is the brightness where overlapping effects stop getting brighter and keep their colour; 0 is no cap. It needs `post` with the default bloom.
+  - `smoke` (0–4, default 0.2) scales the smoke of every move, status and loop; 0 is none.
+  - `particles` (0–4, default 0.25) scales the number of particles of every kind (flames, sparks, smoke…). It multiplies with `smoke` and with the automatic quality.
+  - `look: { core: 1, hot: 1, limit: 0, smoke: 1, particles: 1 }` is the look of 0.4 and earlier: whiter, with four times the particles.
+  - The sliders in the Motion mode show the difference and write the values into the code.
+  - `core`, `hot`, `smoke` and `particles` are shared by every `FXSystem` on the page.
 - Your own glowing parts (crystals, rings, glowing edges): `fx.glow(object)` adds the object and its children to the effects bloom, `fx.glow(object, false)` takes it out. Their whole colour goes into the bloom, so mark the bright, emissive or unlit parts rather than a whole lit model.
 - `'auto'` quality waits 2 seconds after start and after `prewarm()` before it judges, ignores single long frames (shader compiles, a tab switch), and lowers only after frames stay over budget for a second.
 - Have your own post processing? Pass `post: false` and render as usual; you lose the built-in bloom and camera shake, and can use `e.shake` from hit events instead.
