@@ -68,7 +68,7 @@ h.on('end', () => {});
 
 ## Moves
 
-`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall.
+`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`, also with `params` or `color`. With a `seed` the id gets the seed added, so pass your own `id` (`effect('nova', 'ice', { seed: 3, id: 'nova' })`) or play `def.id`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall. For a spot on the ground with no one there (a mouse click), lift `to` to chest height (`y` ≈ 1); the `hit` events fire anyway, so test what is near `e.point` in the handler.
 
 | recipe | kind | from | to | what happens |
 |---|---|---|---|---|
@@ -78,7 +78,7 @@ h.on('end', () => {});
 | `explosion` | magic | caster's hand | target | Light gathers on the target, then a blast with secondary explosions and a smoke column |
 | `pillar` | magic | caster's hand | target | Warning circle under the target, then a pillar erupts from the ground |
 | `meteor` | magic | caster's hand | target | Several meteors fall around the target; the last one hits hardest |
-| `nova` | magic | caster's chest | target | Blast centred on the caster with an outward shockwave that reaches `to`; the hit lands there |
+| `nova` | magic | caster's chest | target | 360° blast centred on the caster's feet; the ring reaches 1.2 m past `to` (at least 3.5 m, or set `params: { radius }`). One hit, at `to` |
 | `barrier` | magic | caster's chest | direction | Hexagon shield that ripples where it is hit, then shatters |
 | `shockwave` | magic | caster's hand | target | Crescent waves (1–3) thrown from an arm swing |
 | `summon` | magic | caster's hand | target | A gate opens (behind, above or under the target) and fires a huge elemental mass |
@@ -127,9 +127,10 @@ s.stop();                                              // remove (freeze shatter
 
 - Pass the character root (`Object3D`, it must contain a mesh); skinned and animated meshes work. Statuses end by themselves when the target is removed from the scene.
 - `progress` 0–1 (`s.progress = x` or `s.to(x, seconds)`) drives how far freeze, petrify and dissolve have spread.
-- Death: `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))`. Spawn: `fx.status(enemy, 'appear')` (ends by itself).
+- Death: `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))`. Spawn: `fx.status(enemy, 'appear').on('end', () => enemy.userData.active = true)` (ends by itself after about 1.4 s; let the enemy move from `'end'`).
 - Shield hits: `shield.impact(e.point)` from the attack's `hit` handler.
 - Stopping gameplay (animations, movement) while frozen or petrified is the game's job.
+- Same name again on the same target replaces the running status; to extend one, keep the run and set `s.lasts` while `s.alive` (true until its fade-out ends). `prewarmStatus(model)` without names compiles all statuses, `appear` included.
 - Timed statuses: `fx.status(enemy, 'burn', { lasts: 4 })` ends by itself after 4 s (game time); `s.lasts = 4` restarts the countdown when it is applied again. Without `lasts` a status stays until `.stop()` (only `appear` ends itself). `duration` is the time to reach `progress`, not how long it lasts.
 
 ## Placed loops
@@ -156,7 +157,12 @@ const l = fx.loop('barrier', pos); l.impact(p); l.stop();
 - **No magic:** use the `plain` element (metal sparks and dust only); any element takes `{ color: 0xrrggbb }`.
 - **Warp:** hide the player on `'vanish'`, then `h.on('appear', (e) => player.position.copy(e.point))`. The point is on the ground 0.9–1.8 m in front of `to`, on the caster's side, so pass the enemy as `to`, not a spot beside it.
 - **Heal:** the single `hit` has power 0; restore health in that handler.
-- **Defeat:** `fx.play(effect('finale', 'light'), { from: enemy.chest, to: enemy.chest })` when an enemy dies, then remove the enemy on `'end'`.
+- **Defeat:** for ordinary enemies, `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))` (about 1.6 s, no camera shake). For a boss, `fx.play(effect('finale', 'light'), { from: enemy.chest, to: enemy.chest })` (3 s, 6 hits with shake and hit-stop), then remove it on `'end'`; too heavy for every kill in a swarm.
+- **Area around the caster (ice nova, war cry):** `fx.play(effect('nova', 'ice'), { from: hero.chest, to: spot })` where `spot` is any point about 1.2 m inside your gameplay radius; or pass `params: { radius: 5 }` and any `to`. The ring is always 360° around the caster's feet. The single `hit` comes about 0.8 s after the cast (`MOVES.nova.first`); apply the area damage to everyone within the radius in that handler.
+- **Click on the ground:** a `Vector3` target at chest height (`y` ≈ 1); hits fire even when no one is there, so look up who is near `e.point`.
+- **Top-down cameras** (as in the demo arena) work as they are.
+- **Shots that miss:** with `feel: true` every hit shakes the camera and pauses the effects, even on empty ground. To pause only on real hits, create the system with `hitStopScale: 0` and call `fx.hitStop(e.hitStop)` in the `hit` handler when something was struck (the small shake stays).
+- **Ids:** `effect('nova', 'ice')` has the id `ice-nova` (also with `params` or `color`); with a `seed` pass your own `id`, or simply pass the definition to `fx.play()`.
 - **Cooldowns and mana** are the game's job; the library only draws.
 - **Variety:** `effect('projectile', 'ice', { seed: 3 })` gives a different variation; `{ params: { count: 3 } }` overrides one value.
 
@@ -173,5 +179,6 @@ Use `rollshade/react`: wrap the scene in `<FX effects={[...]} feel>`, get the sy
 5. Only use the recipe and element names listed above. Unknown names throw an error that lists the valid ones.
 6. `feel: true` adds hit-stop and camera shake. The shake is applied only inside `fx.render()` and undone right after, so camera controllers and follow cameras keep working. If you render yourself instead of `fx.render()`, there is no shake; use `e.shake` from the hit event if you want one.
 7. `fx.clear()` on scene changes, `fx.dispose()` when the game shuts down.
+8. On resize, only `renderer.setSize()` and the camera aspect; `FXSystem` follows the renderer size by itself.
 
-Full reference: https://rollshade.tsuyatt.com/llms-full.txt
+This skill covers everything needed to write a game. The package README (`node_modules/rollshade/README.md`, the same text as https://rollshade.tsuyatt.com/llms-full.txt) adds the hit table per move, every option, React details and the list of exports.

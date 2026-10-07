@@ -6,6 +6,9 @@ Source of the [`rollshade`](https://www.npmjs.com/package/rollshade) npm package
 
 - `src/runtime/` is the runtime (`FXSystem`, moves, status effects, loops, particles, post processing). `src/core/` holds the seeded variation it uses. `src/react/` is the `rollshade/react` entry.
 - `dist/` is what npm ships, built from the sources above.
+- `examples/starter/` is a small project to copy (`npx degit tsuyatt/rollshade/examples/starter my-game`); its code is CC0.
+- `examples/ai-made/` is a game an AI wrote from the package docs alone, with the request it got ([play it](https://rollshade.tsuyatt.com/demo/ai/)).
+- `examples/arena/` is the source of the [Rollshade Arena](https://rollshade.tsuyatt.com/demo/) demo, with its CC0 models (`npx degit tsuyatt/rollshade/examples/arena my-arena`).
 - The sources are copied from the private repository that also holds the Rollshade site, so the history here is a series of release snapshots.
 
 ## Issues and pull requests

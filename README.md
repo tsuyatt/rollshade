@@ -20,6 +20,14 @@ Needs three r186. Each version of rollshade is tested against one three release,
 
 ## Quick start
 
+To start from a working project instead (a hero, an enemy, torches and three spells, about 100 lines of plain JavaScript):
+
+```sh
+npx degit tsuyatt/rollshade/examples/starter my-game && cd my-game && npm install && npm run dev
+```
+
+Or add it to your own scene:
+
 ```js
 import * as THREE from 'three/webgpu';
 import { FXSystem, effect } from 'rollshade';
@@ -60,7 +68,7 @@ renderer.setAnimationLoop((ms) => {
 
 ## Moves
 
-`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall.
+`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`, also with `params` or `color`. With a `seed` the id gets the seed added, so pass your own `id` (`effect('nova', 'ice', { seed: 3, id: 'nova' })`) or play `def.id`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall. For a spot on the ground with no one there (a mouse click), lift `to` to chest height (`y` ≈ 1); the `hit` events fire anyway, so test what is near `e.point` in the handler.
 
 | recipe | kind | from | to | what happens |
 |---|---|---|---|---|
@@ -70,7 +78,7 @@ renderer.setAnimationLoop((ms) => {
 | `explosion` | magic | caster's hand | target | Light gathers on the target, then a blast with secondary explosions and a smoke column |
 | `pillar` | magic | caster's hand | target | Warning circle under the target, then a pillar erupts from the ground |
 | `meteor` | magic | caster's hand | target | Several meteors fall around the target; the last one hits hardest |
-| `nova` | magic | caster's chest | target | Blast centred on the caster with an outward shockwave that reaches `to`; the hit lands there |
+| `nova` | magic | caster's chest | target | 360° blast centred on the caster's feet; the ring reaches 1.2 m past `to` (at least 3.5 m, or set `params: { radius }`). One hit, at `to` |
 | `barrier` | magic | caster's chest | direction | Hexagon shield that ripples where it is hit, then shatters |
 | `shockwave` | magic | caster's hand | target | Crescent waves (1–3) thrown from an arm swing |
 | `summon` | magic | caster's hand | target | A gate opens (behind, above or under the target) and fires a huge elemental mass |
@@ -237,10 +245,11 @@ fx.status(newEnemy, 'appear');                                  // spawn in; rem
 - `progress` (0–1) drives how far freeze, petrify and dissolve have spread and how strong the others are. Set it directly (`s.progress = 0.5`) or animate it with `s.to(value, seconds)`.
 - `lasts` is how long the status stays, in seconds from the start; then it fades out over `fade` seconds (default 0.4) and fires `end`, as if you had called `stop()`. Without `lasts`, statuses stay until you call `stop()` (only `appear` ends by itself). Set `s.lasts = 4` to restart the countdown, for example when the same attack burns the target again; reading `s.lasts` gives the seconds left (`Infinity` without a limit). It counts game time, so `fx.timeScale` and hit-stop slow it down.
 - `duration` is how many seconds the status takes to reach `progress` when it starts (defaults: freeze 0.9, petrify 1.4, dissolve 1.6, appear 1.4, the others fade in within 0.6), not how long it lasts.
-- `full` fires when `progress` reaches 1; `end` fires after `stop()` has faded it out. `fx.statusesOf(target)` lists a status until its fade-out has finished.
+- `full` fires when `progress` reaches 1; `end` fires after `stop()` has faded it out. `fx.statusesOf(target)` lists a status until its fade-out has finished, and `s.alive` stays true until then.
+- Calling `fx.status()` again with the same name on the same target replaces the running one (it starts over from 0). To extend a status instead, keep the run and set `s.lasts` while `s.alive`.
 - `element` recolours any status (`{ element: 'dark' }` for black flames).
 - The target must contain at least one mesh. When the target is removed from the scene, its statuses end by themselves. If you throw the character away for good, call `dispose()` on its objects or materials as usual in three.js so the renderer lets go of it.
-- The first status on a model compiles a shader. Call `await fx.prewarmStatus(enemyModel)` once while loading to avoid a stutter (important on WebGL2). The model does not have to be in the scene or visible yet: `prewarmStatus` adds it for the moment it needs and puts it back. Once per kind of model is enough: status materials are shared by every character that uses the same source material, and each character's own values (how frozen, how burnt) are read per object at draw time. `SkeletonUtils.clone` shares materials; if you recolour clones, share one recoloured material per colour instead of cloning it per character.
+- The first status on a model compiles a shader. Call `await fx.prewarmStatus(enemyModel)` once while loading (without a list of names it compiles all 11 statuses, `appear` included) to avoid a stutter (important on WebGL2). The model does not have to be in the scene or visible yet: `prewarmStatus` adds it for the moment it needs and puts it back. Once per kind of model is enough: status materials are shared by every character that uses the same source material, and each character's own values (how frozen, how burnt) are read per object at draw time. `SkeletonUtils.clone` shares materials; if you recolour clones, share one recoloured material per colour instead of cloning it per character.
 - Each character gets one swapped material shared by all its statuses; after `prewarmStatus`, adding, stacking and removing statuses compiles nothing new, even on other characters that use the same model.
 
 ## Loops
@@ -356,6 +365,7 @@ These are the mistakes AI assistants and people make most often:
 4. `fx.add()` a definition before calling `fx.play(id)` by its id, or pass the definition itself: `fx.play(effect('nova', 'ice'), { from, to })`. Passing it is simpler when definitions come and go (per enemy, per placed object): nothing piles up. `fx.has(id)` and `fx.remove(id)` manage the added ones.
 5. Call `await fx.prewarm()` once while loading, otherwise the first cast of each move stutters. For a loading bar, pass a callback that gets 0–1: `fx.prewarm({}, (p) => (progress.value = p))`.
 6. Use a `WebGPURenderer`. The classic `WebGLRenderer` cannot run TSL; `WebGPURenderer` falls back to WebGL2 on its own.
+7. On window resize, call `renderer.setSize()` and update the camera's aspect as usual. `FXSystem` reads the size every frame; there is nothing to resize on it.
 
 ## For AI coding assistants
 
@@ -365,7 +375,7 @@ The package ships an agent skill at `skills/rollshade/SKILL.md`. Install it for 
 npx skills add ./node_modules/rollshade/skills/rollshade
 ```
 
-or copy the folder into `.claude/skills/`. A compact reference for LLMs is at [rollshade.tsuyatt.com/llms.txt](https://rollshade.tsuyatt.com/llms.txt).
+or copy the folder into `.claude/skills/`. For tools that read from the web, [llms.txt](https://rollshade.tsuyatt.com/llms.txt) is a short overview and [llms-full.txt](https://rollshade.tsuyatt.com/llms-full.txt) the complete reference (this README plus the skill). An assistant that has the package installed can read the same text from `node_modules/rollshade/README.md` and `skills/rollshade/SKILL.md`.
 
 ## Source and issues
 

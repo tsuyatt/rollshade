@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.1 (2026-10-07)
+
+Docs only, from watching an AI assistant build a small game with nothing but these docs:
+
+- `nova`: the ring is always 360° around the caster's feet and reaches 1.2 m past `to` (at least 3.5 m), or `params: { radius }`; how to use it as an area attack around the caster.
+- Deaths: `dissolve` for ordinary enemies, `finale` for bosses (it shakes the camera six times).
+- Ground clicks: lift a `Vector3` target to chest height; `hit` fires even when no one is there.
+- Statuses: the same name on the same target replaces the running one; `alive` stays true until the fade-out ends; `prewarmStatus` without names compiles all of them.
+- Resizing needs nothing on `FXSystem`.
+- Ids: `effect()` keeps `${element}-${recipe}` with `params` or `color`; with a `seed`, pass your own `id`.
+- Spawning: let an enemy move from the `'end'` of `appear`. Hit-stop only on real hits: `hitStopScale: 0` and `fx.hitStop()` in the handler.
+- Examples in the repository: a starter project (`npx degit tsuyatt/rollshade/examples/starter my-game`), the source of the Rollshade Arena demo with its CC0 models (`examples/arena`), and the game an AI built from these docs, with its request (`examples/ai-made`, playable at https://rollshade.tsuyatt.com/demo/ai/).
+- Which file to read: llms.txt is an overview, llms-full.txt (the same text as the README and the skill in the package) is the full reference.
+
 ## 0.5.0 (2026-10-06)
 
 - Softer bloom by default: `strength` 0.8 → 0.3. Pass `post: { strength: 0.8 }` for the old look.

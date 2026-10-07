@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rollshade Arena — three.js spell and melee effects demo</title>
+    <meta name="description" content="A small arena game built with the rollshade npm package: play a mage, a swordsman or a brawler, with spells, sword and fist effects, status effects and placed loops for three.js WebGPU." />
+    <style>
+      html, body { margin: 0; height: 100%; background: #07080d; color: #e6e8ef; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; user-select: none; }
+      #view { position: absolute; inset: 0; cursor: crosshair; }
+      #hud { position: absolute; left: 16px; top: 14px; pointer-events: none; }
+      #hp { width: 220px; height: 10px; background: #26222a; border-radius: 5px; overflow: hidden; margin-top: 6px; }
+      #hp > div { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5a4a, #ffb84a); transition: width 0.15s; }
+      #info { opacity: 0.8; margin-top: 6px; }
+      #skills { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: none; }
+      .skill { position: relative; width: 64px; height: 52px; border-radius: 8px; background: #151823cc; border: 1px solid #2d3345; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; font-size: 11px; }
+      .skill b { font-size: 13px; color: #fff; }
+      .skill i { position: absolute; left: 0; right: 0; bottom: 0; background: #000a; height: 0; }
+      #center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; pointer-events: none; text-align: center; }
+      #center h1 { margin: 0; font-size: 34px; letter-spacing: 0.04em; }
+      #center .box { background: #07080dcc; border: 1px solid #2d3345; border-radius: 14px; padding: 22px 32px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+      #center .jobs { display: flex; gap: 8px; pointer-events: auto; }
+      #center .jobs button { padding: 8px 16px; border-radius: 8px; border: 1px solid #333a4a; background: #151823cc; color: #e6e8ef; font: inherit; font-size: 14px; cursor: pointer; }
+      #center .jobs button:hover { background: #2a3044; }
+      #center .jobs button.on { border-color: #9fc3ff; background: #24304c; color: #fff; }
+      #center .thanks { font-size: 20px; color: #ffe7a0; text-shadow: 0 0 12px #ff9a3c; margin: 6px 0; }
+      #code { position: absolute; right: 14px; top: 14px; width: max-content; max-width: min(480px, calc(100vw - 28px)); background: #0b0d14e0; border: 1px solid #2d3345; border-radius: 10px; padding: 10px 12px; pointer-events: auto; }
+      #code[hidden] { display: none; }
+      #code header { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; opacity: 0.85; }
+      #code header b { color: #fff; }
+      #code pre { margin: 8px 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; overflow-x: auto; scrollbar-width: thin; scrollbar-color: #2d3345 transparent; color: #cfd6e6; }
+      #code pre em { font-style: normal; color: #a6e3a1; }
+      #code pre u { text-decoration: none; color: #fab387; }
+      #code pre s { text-decoration: none; color: #89b4fa; }
+      #code footer { font-size: 12px; opacity: 0.8; }
+      #code a, #center a { color: #9fc3ff; }
+      #foot { position: absolute; right: 14px; bottom: 12px; opacity: 0.7; }
+      #foot a { color: #9fc3ff; }
+      #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+      .unit-hp { position: absolute; left: -24px; top: -4px; width: 48px; height: 5px; margin: 0; background: #0009; border-radius: 3px; overflow: hidden; }
+      .unit-hp i { display: block; height: 100%; width: 100%; background: #ff5a4a; }
+      .unit-hp.hero { left: -30px; width: 60px; }
+      .unit-hp.hero i { background: #6ee07a; }
+      .pop { position: absolute; transform: translate(-50%, -100%); font-weight: 800; font-size: 20px; color: #fff3c8; text-shadow: 0 2px 4px #000, 0 0 8px #ff8a3c; animation: rise 0.9s ease-out forwards; }
+      .pop.dot { font-size: 14px; color: #ffb070; }
+      .pop.heal { font-size: 15px; color: #a6ffb0; text-shadow: 0 2px 4px #000; }
+      .pop.hurt { color: #ff6a5a; text-shadow: 0 2px 4px #000; }
+      @keyframes rise { 0% { opacity: 0; margin-top: 6px; } 15% { opacity: 1; } 100% { opacity: 0; margin-top: -46px; } }
+      #menu { position: absolute; inset: 0; background: #05060acc; display: flex; align-items: center; justify-content: center; }
+      #menu[hidden] { display: none; }
+      #menu .box { background: #151823; border: 1px solid #2d3345; border-radius: 12px; padding: 24px 28px; min-width: 280px; display: flex; flex-direction: column; gap: 10px; }
+      #menu h2 { margin: 0 0 6px; font-size: 22px; }
+      #menu button, #menu a { display: block; text-align: center; padding: 10px 14px; border-radius: 8px; border: 1px solid #333a4a; background: #1f2331; color: #e6e8ef; font: inherit; text-decoration: none; cursor: pointer; }
+      #menu button:hover, #menu a:hover { background: #2a3044; }
+      #menu p { margin: 6px 0 0; opacity: 0.7; font-size: 12px; line-height: 1.6; }
+      #menu label { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+      #menu select { background: #1f2331; color: #e6e8ef; border: 1px solid #333a4a; border-radius: 6px; padding: 6px 8px; font: inherit; }
+      #loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #06070b; z-index: 5; }
+      #loading b { font-size: 26px; letter-spacing: 0.04em; }
+      #loading div { width: 260px; height: 6px; border-radius: 3px; background: #1d2130; overflow: hidden; }
+      #loading i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6f8cff, #c66bff); transition: width 0.2s; }
+      #loading span { font-size: 12px; opacity: 0.7; }
+    </style>
+  </head>
+  <body>
+    <div id="view"></div>
+    <div id="labels"></div>
+    <div id="loading"><b>Rollshade Arena</b><div><i></i></div><span>Loading</span></div>
+    <div id="hud"><div id="title">Rollshade Arena</div><div id="hp"><div></div></div><div id="info"></div></div>
+    <div id="skills"></div>
+    <div id="center"></div>
+    <div id="code" hidden><header><span>The code for <b></b></span><span>C to hide</span></header><pre></pre><footer><code>npm i rollshade</code> · <a href="https://rollshade.tsuyatt.com/guide/#npm" target="_blank" rel="noopener">How to add it to your game</a></footer></div>
+    <div id="menu" hidden>
+      <div class="box">
+        <h2>Paused</h2>
+        <button data-act="resume">Resume (Esc)</button>
+        <button data-act="restart">Restart</button>
+        <label>Class <select data-act="class"><option value="mage">Mage</option><option value="blade">Swordsman</option><option value="fist">Brawler</option></select></label>
+        <label>Quality <select data-act="quality"><option value="auto">Auto</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+        <a href="https://rollshade.tsuyatt.com/guide/#npm" target="_blank" rel="noopener">Use these effects in your game</a>
+        <a href="https://rollshade.tsuyatt.com/demo/ai/">A game an AI built from the docs</a>
+        <a href="https://rollshade.tsuyatt.com/">Open the effect tool</a>
+        <a href="https://rollshade.tsuyatt.com/guide/">Guide</a>
+        <p></p>
+      </div>
+    </div>
+    <div id="foot">Effects: <a href="https://www.npmjs.com/package/rollshade" target="_blank" rel="noopener">npm i rollshade</a> · <a href="https://rollshade.tsuyatt.com/">rollshade.tsuyatt.com</a></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

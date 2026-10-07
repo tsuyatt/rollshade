@@ -1,4 +1,4 @@
-// Rollshade FX runtime 0.5.0 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.5.1 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
@@ -17741,7 +17741,7 @@ var MOVES = {
 };
 //#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.5.0";
+var VERSION = "0.5.1";
 function defineEffect(def) {
 	return def;
 }

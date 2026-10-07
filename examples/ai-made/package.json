@@ -1,0 +1,16 @@
+{
+  "name": "rollshade-ai-made",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "rollshade": "^0.5.0",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "vite": "^8.0.0"
+  }
+}

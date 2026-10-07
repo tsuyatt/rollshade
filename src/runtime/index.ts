@@ -18,7 +18,7 @@ export { LOOK } from './look';
 export type { LookSettings } from './look';
 export type { BloomSettings } from './post';
 export type { MoveTiming } from './moves';
-export const VERSION = '0.5.0';
+export const VERSION = '0.5.1';
 
 import type { EffectDef } from './system';
 

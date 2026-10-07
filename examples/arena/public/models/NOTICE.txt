@@ -1,0 +1,8 @@
+The models in this folder were generated with Rollpoly (https://rollpoly.tsuyatt.com) and are released under CC0 1.0. Each file records its source URL, seed and generator version in its glTF extras.
+
+beast.glb  https://rollpoly.tsuyatt.com/?c=quadruped&s=q3&v=5&g=4
+chibi.glb  https://rollpoly.tsuyatt.com/?c=chibi&s=c1&v=5&g=4
+slime.glb  https://rollpoly.tsuyatt.com/?c=amorphous&s=s1&v=5&g=4
+chibi_cni4y5.glb  https://rollpoly.tsuyatt.com/?c=chibi&s=cni4y5&v=5&g=4&d=eyJwYWxldHRlLnByaW1hcnkiOiIjZDdiMjg5IiwicGFsZXR0ZS5zZWNvbmRhcnkiOiIjMmM4ZDliIiwicGFsZXR0ZS5hY2NlbnQiOiIjYmI3ZDMyIiwicGFsZXR0ZS5leWUiOiIjOWRhMjJkIiwicGFsZXR0ZS5nZWFyIjoiIzZkMzQzOCIsInBhbGV0dGUuZGFyayI6IiMxNzI0MjYifQ
+flying_1k3iayw.glb  https://rollpoly.tsuyatt.com/?c=flying&s=1k3iayw&v=5&g=4
+quadruped_24zytc.glb  https://rollpoly.tsuyatt.com/?c=quadruped&s=24zytc&v=5&g=4
