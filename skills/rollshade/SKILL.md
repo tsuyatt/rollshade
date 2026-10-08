@@ -23,7 +23,7 @@ Note that `barrier` exists twice: the move `effect('barrier', element)` is a sho
 npm i rollshade three@0.186
 ```
 
-three r186 (the peer range is pinned to one three release). The renderer must be `THREE.WebGPURenderer` from `three/webgpu` (it falls back to WebGL2 by itself). The classic `WebGLRenderer` cannot run it.
+three r186 (the peer range is pinned to three 0.186.x). The renderer must be `THREE.WebGPURenderer` from `three/webgpu` (it falls back to WebGL2 by itself). The classic `WebGLRenderer` cannot run it. To move an existing `WebGLRenderer` project over, follow "Coming from WebGLRenderer" in the README: `ShaderMaterial`, `onBeforeCompile` and `EffectComposer` have to be rewritten in TSL, everything else mostly carries over.
 
 ```js
 import * as THREE from 'three/webgpu';
@@ -108,9 +108,9 @@ h.on('end', () => {});
 | `tackle` | body | attacker's chest | target | Shoulder charge across the gap with dust and speed lines |
 | `pound` | fist | attacker's chest | target | Jump and punch the ground; a shockwave runs along the floor to the target |
 | `heal` | support | caster's hand | ally | Light flies to the ally and rises around them (hit with power 0) |
-| `buff` | support | caster's chest | (unused) | Burst and a lasting aura on the caster |
+| `buff` | support | caster's chest | (leave out) | Burst and a lasting aura on the caster |
 | `warp` | support | caster's chest | destination | Caster vanishes and reappears on the ground 0.9–1.8 m in front of `to`, on the caster's side (`vanish` / `appear` events carry ground points) |
-| `finale` | event | (unused) | enemy's chest | Defeat: light rays, chained blasts, implosion and a flash |
+| `finale` | event | (leave out) | enemy's chest | Defeat: light rays, chained blasts, implosion and a flash |
 
 Blade, fist and kick moves expect the attacker about 2 m from the target (`dash` and `tackle` cover the gap themselves). The blade path is written to `handle.blade.base` / `handle.blade.tip` every frame, so you can attach your own sword to it; fist and kick moves write the fist or foot to `handle.head` instead and set `handle.body.limb` to `'fist'` or `'foot'`. `handle.body` also carries hints for animating the attacker: `offset` (root movement since the move started, for steps, dashes and jumps), `lean` and `turn` in radians. `offset` returns to zero as the move settles; to keep the distance a `dash` or `tackle` covered, move your character by the furthest offset rather than following it back. Every `hit` event has `dir`, the direction to knock the target back (up for `rising` and `uppercut`, down for `cleave` and `heel`).
 
@@ -127,7 +127,7 @@ s.stop();                                              // remove (freeze shatter
 
 - Pass the character root (`Object3D`, it must contain a mesh); skinned and animated meshes work. Statuses end by themselves when the target is removed from the scene.
 - `progress` 0–1 (`s.progress = x` or `s.to(x, seconds)`) drives how far freeze, petrify and dissolve have spread.
-- Death: `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))`. Spawn: `fx.status(enemy, 'appear').on('end', () => enemy.userData.active = true)` (ends by itself after about 1.4 s; let the enemy move from `'end'`).
+- Death: `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))`. Spawn: `fx.status(enemy, 'appear').on('end', () => enemy.userData.active = true)` (ends by itself after about 1.4 s; let the enemy move from `'end'`). `appear` also ends a `dissolve` still on the model, so a dissolved enemy can be reused.
 - Shield hits: `shield.impact(e.point)` from the attack's `hit` handler.
 - Stopping gameplay (animations, movement) while frozen or petrified is the game's job.
 - Same name again on the same target replaces the running status; to extend one, keep the run and set `s.lasts` while `s.alive` (true until its fade-out ends). `prewarmStatus(model)` without names compiles all statuses, `appear` included.
@@ -157,7 +157,7 @@ const l = fx.loop('barrier', pos); l.impact(p); l.stop();
 - **No magic:** use the `plain` element (metal sparks and dust only); any element takes `{ color: 0xrrggbb }`.
 - **Warp:** hide the player on `'vanish'`, then `h.on('appear', (e) => player.position.copy(e.point))`. The point is on the ground 0.9–1.8 m in front of `to`, on the caster's side, so pass the enemy as `to`, not a spot beside it.
 - **Heal:** the single `hit` has power 0; restore health in that handler.
-- **Defeat:** for ordinary enemies, `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))` (about 1.6 s, no camera shake). For a boss, `fx.play(effect('finale', 'light'), { from: enemy.chest, to: enemy.chest })` (3 s, 6 hits with shake and hit-stop), then remove it on `'end'`; too heavy for every kill in a swarm.
+- **Defeat:** for ordinary enemies, `fx.status(enemy, 'dissolve').on('full', () => scene.remove(enemy))` (about 1.6 s, no camera shake). For a boss, `fx.play(effect('finale', 'light'), { to: enemy.chest })` (3 s, 6 hits with shake and hit-stop), then remove it on `'end'`; too heavy for every kill in a swarm.
 - **Area around the caster (ice nova, war cry):** `fx.play(effect('nova', 'ice'), { from: hero.chest, to: spot })` where `spot` is any point about 1.2 m inside your gameplay radius; or pass `params: { radius: 5 }` and any `to`. The ring is always 360° around the caster's feet. The single `hit` comes about 0.8 s after the cast (`MOVES.nova.first`); apply the area damage to everyone within the radius in that handler.
 - **Click on the ground:** a `Vector3` target at chest height (`y` ≈ 1); hits fire even when no one is there, so look up who is near `e.point`.
 - **Top-down cameras** (as in the demo arena) work as they are.
@@ -172,7 +172,7 @@ Use `rollshade/react`: wrap the scene in `<FX effects={[...]} feel>`, get the sy
 
 ## Rules
 
-1. Import three only from `three/webgpu` (and TSL from `three/tsl`; a hand-written import map must also map `three/addons/`). Importing `three` as well loads a second copy and breaks materials.
+1. In your own code, import three only from `three/webgpu` (and TSL from `three/tsl`; a hand-written import map must also map `three/addons/`, and `three` to the same `three.webgpu.js`). Mixing `three` and `three/webgpu` in your code breaks node materials; addons that import `three` themselves are fine with a bundler.
 2. `await renderer.init()` before the first frame and `await fx.prewarm()` while loading.
 3. Every frame: `fx.update(seconds)` then `fx.render()`. `fx.render()` also works with `post: false` (it then calls `renderer.render(scene, camera)` for you), so keep calling it unless the game has its own render pipeline.
 4. Clamp the frame delta (for example to 0.05 s) so a stalled tab does not jump effects forward.
@@ -181,4 +181,4 @@ Use `rollshade/react`: wrap the scene in `<FX effects={[...]} feel>`, get the sy
 7. `fx.clear()` on scene changes, `fx.dispose()` when the game shuts down.
 8. On resize, only `renderer.setSize()` and the camera aspect; `FXSystem` follows the renderer size by itself.
 
-This skill covers everything needed to write a game. The package README (`node_modules/rollshade/README.md`, the same text as https://rollshade.tsuyatt.com/llms-full.txt) adds the hit table per move, every option, React details and the list of exports.
+This skill covers everything needed to write a game. The package README (`node_modules/rollshade/README.md`, the same text as https://rollshade.tsuyatt.com/llms-full.txt) adds the hit table per move, the options, React details and migrating from WebGLRenderer.

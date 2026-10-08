@@ -442,14 +442,14 @@ export class FXSystem {
     this.post?.setLoopBloom(best);
   }
 
-  play(effect: string | EffectDef, opts: PlayOptions): FXHandle {
+  play(effect: string | EffectDef, given: Partial<PlayOptions>): FXHandle {
     if (this.disposed) throw new Error('rollshade: this FXSystem was disposed. Create a new one');
     const def = typeof effect === 'string' ? this.defs.get(effect) : effect;
     if (!def) throw new Error(`rollshade: unknown effect "${effect}". Added: ${[...this.defs.keys()].join(', ') || 'none'}. Call fx.add(effect('meteor', 'fire')) first, or pass the definition itself to fx.play()`);
     const recipe = Object.hasOwn(RECIPES, def.recipe) ? RECIPES[def.recipe] : undefined;
     if (!recipe) throw new Error(`rollshade: unknown recipe "${def.recipe}". Use one of: ${Object.keys(RECIPES).join(', ')}`);
-    if (!opts?.from) throw new Error(`rollshade: fx.play('${def.id}', { from, to }) needs from (a THREE.Vector3 or an Object3D)`);
-    if (!opts.to) opts = { ...opts, to: opts.from };
+    if (!given?.from && !given?.to) throw new Error(`rollshade: fx.play('${def.id}', { from, to }) needs from or to (a THREE.Vector3 or an Object3D)`);
+    const opts = { ...given, from: (given.from ?? given.to)!, to: (given.to ?? given.from)! };
     this.activate();
     const handle = new FXHandle(def.id, this);
     this.handles.add(handle);

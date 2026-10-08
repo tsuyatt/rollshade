@@ -1,4 +1,4 @@
-// Rollshade FX runtime 0.5.1 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.5.2 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
@@ -16381,16 +16381,17 @@ var FXSystem = class {
 		for (const h of this.loops) if (h.def.bloom && (!best || h.def.bloom.strength > best.strength)) best = h.def.bloom;
 		this.post?.setLoopBloom(best);
 	}
-	play(effect, opts) {
+	play(effect, given) {
 		if (this.disposed) throw new Error("rollshade: this FXSystem was disposed. Create a new one");
 		const def = typeof effect === "string" ? this.defs.get(effect) : effect;
 		if (!def) throw new Error(`rollshade: unknown effect "${effect}". Added: ${[...this.defs.keys()].join(", ") || "none"}. Call fx.add(effect('meteor', 'fire')) first, or pass the definition itself to fx.play()`);
 		const recipe = Object.hasOwn(RECIPES, def.recipe) ? RECIPES[def.recipe] : void 0;
 		if (!recipe) throw new Error(`rollshade: unknown recipe "${def.recipe}". Use one of: ${Object.keys(RECIPES).join(", ")}`);
-		if (!opts?.from) throw new Error(`rollshade: fx.play('${def.id}', { from, to }) needs from (a THREE.Vector3 or an Object3D)`);
-		if (!opts.to) opts = {
-			...opts,
-			to: opts.from
+		if (!given?.from && !given?.to) throw new Error(`rollshade: fx.play('${def.id}', { from, to }) needs from or to (a THREE.Vector3 or an Object3D)`);
+		const opts = {
+			...given,
+			from: given.from ?? given.to,
+			to: given.to ?? given.from
 		};
 		this.activate();
 		const handle = new FXHandle(def.id, this);
@@ -17741,7 +17742,7 @@ var MOVES = {
 };
 //#endregion
 //#region src/runtime/index.ts
-var VERSION = "0.5.1";
+var VERSION = "0.5.2";
 function defineEffect(def) {
 	return def;
 }

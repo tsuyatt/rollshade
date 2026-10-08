@@ -7,7 +7,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "rollshade": "^0.5.0",
+    "rollshade": "^0.5.2",
     "three": "0.186.0"
   },
   "devDependencies": {

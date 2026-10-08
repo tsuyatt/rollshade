@@ -1,10 +1,10 @@
-// Rollshade FX runtime 0.5.1 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.5.2 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.5.1';
+export declare const VERSION: '0.5.2';
 
 /** A point, or an Object3D whose world position is used. Both are read again every frame, so moving the object or changing the vector in place (`v.copy(p)`) moves the effect with it. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;
@@ -26,8 +26,10 @@ export interface EffectDef {
 
 /** Where a move starts and lands. See the Moves table in the README for what `from` and `to` mean per recipe. */
 export interface PlayOptions {
-  from: Anchor;
-  to: Anchor;
+  /** Where the move starts (the caster's hand or chest). Defaults to `to`; `finale` needs only `to`. Pass at least one of `from` and `to`. */
+  from?: Anchor;
+  /** Where it lands (the target's chest or a ground point). Defaults to `from`; `buff` needs only `from`. */
+  to?: Anchor;
   /** Multiplies the power of every hit (default 1). */
   power?: number;
   /** Scales the whole move (default 1). */
@@ -52,9 +54,10 @@ export interface HitEvent {
   dir: THREE.Vector3;
 }
 
-/** `'cast'`: charge starts. `'release'`: fired or swung. `'hit'`: a hit lands (`barrier`, `buff` and `warp` send none). `'vanish'` / `'appear'`: warp only. `'end'`: the move is over. */
+/** `'first'`: the first hit of the move. `'link'`: a hit in the middle of a combo. `'final'`: the finishing hit. `'tick'`: a repeating hit of a beam or storm. */
 export type HitRole = 'first' | 'link' | 'final' | 'tick';
 
+/** `'cast'`: charge starts. `'release'`: fired or swung. `'hit'`: a hit lands (`barrier`, `buff` and `warp` send none). `'vanish'` / `'appear'`: warp only. `'end'`: the move is over. */
 export type FXEvent = 'cast' | 'release' | 'hit' | 'vanish' | 'appear' | 'end';
 
 /** Options for `new FXSystem()`. Everything except `scene`, `camera` and `renderer` is optional. */
@@ -213,6 +216,7 @@ export declare class FixtureRun {
   readonly done: Promise<void>;
   moveTo(at: THREE.Vector3 | THREE.Object3D): void;
   impact(point: THREE.Vector3): void;
+  /** Fades the effect out over `fade` seconds (default 0.5), then removes it. */
   stop(fade?: number): void;
   on(event: 'end', fn: () => void): () => void;
 }
@@ -345,7 +349,7 @@ export interface EffectOptions {
   params?: Record<string, number>;
 }
 
-/** Builds a move definition with the id `${element}-${recipe}` (or `${element}-${recipe}-${seed}` with a seed). */
+/** Builds a move definition with the id `${element}-${recipe}` (or `${element}-${recipe}-${seed}` with a seed). `element` defaults to `'fire'`. */
 export declare function effect(recipe: RecipeName, element?: ElementName, options?: EffectOptions): EffectDef;
 
 export declare const ELEMENTS: Record<ElementName, { core: number; main: number; accent: number; smoke: number | null }>;

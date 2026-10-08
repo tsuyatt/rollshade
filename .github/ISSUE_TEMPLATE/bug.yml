@@ -7,7 +7,7 @@ body:
     attributes:
       label: Versions
       description: rollshade, three, browser and OS. Say whether it runs on WebGPU or the WebGL2 fallback.
-      placeholder: rollshade 0.1.0, three 0.186.0, Chrome 140 on macOS, WebGPU
+      placeholder: rollshade 0.5.2, three 0.186.0, Chrome 140 on macOS, WebGPU
     validations:
       required: true
   - type: textarea

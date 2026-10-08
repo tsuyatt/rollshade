@@ -16,7 +16,7 @@ fx.play(effect('meteor', 'fire'), { from: hero.hand, to: enemy });
 npm i rollshade three@0.186
 ```
 
-Needs three r186. Each version of rollshade is tested against one three release, because three changes its TSL and WebGPU APIs often; the peer range follows when a new three release has been checked. It imports from `three/webgpu`, `three/tsl` and `three/addons/`; bundlers resolve these by themselves, a hand-written import map needs all three. With TypeScript, also `npm i -D @types/three`. Runs on WebGPU and falls back to WebGL2 automatically (the first `prewarm()` takes longer there).
+Needs three r186. Each version of rollshade is tested against one three release, because three changes its TSL and WebGPU APIs often; the peer range follows when a new three release has been checked. A check builds the package against that release and plays every move, status and loop on both WebGPU and the WebGL2 fallback in a browser, failing on any error or warning. Checked so far: three 0.186.0 and 0.186.1. It imports from `three/webgpu`, `three/tsl` and `three/addons/`; bundlers resolve these by themselves, a hand-written import map needs all three entries (and `three` mapped to the same `three.webgpu.js`). With TypeScript, also `npm i -D @types/three`. Runs on WebGPU and falls back to WebGL2 automatically (the first `prewarm()` takes longer there).
 
 ## Quick start
 
@@ -108,9 +108,9 @@ renderer.setAnimationLoop((ms) => {
 | `tackle` | body | attacker's chest | target | Shoulder charge across the gap with dust and speed lines |
 | `pound` | fist | attacker's chest | target | Jump and punch the ground; a shockwave runs along the floor to the target |
 | `heal` | support | caster's hand | ally | Light flies to the ally and rises around them (hit with power 0) |
-| `buff` | support | caster's chest | (unused) | Burst and a lasting aura on the caster |
+| `buff` | support | caster's chest | (leave out) | Burst and a lasting aura on the caster |
 | `warp` | support | caster's chest | destination | Caster vanishes and reappears on the ground 0.9–1.8 m in front of `to`, on the caster's side (`vanish` / `appear` events carry ground points) |
-| `finale` | event | (unused) | enemy's chest | Defeat: light rays, chained blasts, implosion and a flash |
+| `finale` | event | (leave out) | enemy's chest | Defeat: light rays, chained blasts, implosion and a flash |
 
 Blade, fist and kick moves expect the attacker about 2 m from the target (`dash` and `tackle` cover the gap themselves). The blade path is written to `handle.blade.base` / `handle.blade.tip` every frame, so you can attach your own sword to it; fist and kick moves write the fist or foot to `handle.head` instead and set `handle.body.limb` to `'fist'` or `'foot'`. `handle.body` also carries hints for animating the attacker: `offset` (root movement since the move started, for steps, dashes and jumps), `lean` and `turn` in radians. `offset` returns to zero as the move settles; to keep the distance a `dash` or `tackle` covered, move your character by the furthest offset rather than following it back. Every `hit` event has `dir`, the direction to knock the target back (up for `rising` and `uppercut`, down for `cleave` and `heel`).
 
@@ -236,7 +236,7 @@ fx.status(newEnemy, 'appear');                                  // spawn in; rem
 | `poison` | poison | Sickly blotches, oozing glow, bubbles, drips, miasma at the feet |
 | `petrify` | earth | Stone creeps up from the feet (follows `progress`); crumbles into rocks and dust when stopped |
 | `dissolve` | fire | Burns away from the head with a glowing edge; other statuses dissolve with it. `full` = gone |
-| `appear` | arcane | Reverse dissolve from the feet up; ends by itself (`progress` is ignored) |
+| `appear` | arcane | Reverse dissolve from the feet up; ends by itself (`progress` is ignored) and ends a `dissolve` still on the model, so a dissolved enemy can be reused |
 | `bless` | light | Golden rim, rising light, spiralling motes and crosses |
 | `curse` | dark | Darkened body, pulsing purple rim, dark smoke, motes sucked in |
 | `shield` | water | Hexagon bubble sized to the character; `impact(point)` ripples, shatters when stopped |
@@ -248,6 +248,7 @@ fx.status(newEnemy, 'appear');                                  // spawn in; rem
 - `full` fires when `progress` reaches 1; `end` fires after `stop()` has faded it out. `fx.statusesOf(target)` lists a status until its fade-out has finished, and `s.alive` stays true until then.
 - Calling `fx.status()` again with the same name on the same target replaces the running one (it starts over from 0). To extend a status instead, keep the run and set `s.lasts` while `s.alive`.
 - `element` recolours any status (`{ element: 'dark' }` for black flames).
+- While a status runs, each mesh is drawn with the status's own material, built from the original's `color`, `map`, normal, roughness and metalness maps and `emissive`. A custom look (a `colorNode` you wrote, a pulsing glow) pauses until the status ends, then the original material comes back. Props work too, not only characters.
 - The target must contain at least one mesh. When the target is removed from the scene, its statuses end by themselves. If you throw the character away for good, call `dispose()` on its objects or materials as usual in three.js so the renderer lets go of it.
 - The first status on a model compiles a shader. Call `await fx.prewarmStatus(enemyModel)` once while loading (without a list of names it compiles all 11 statuses, `appear` included) to avoid a stutter (important on WebGL2). The model does not have to be in the scene or visible yet: `prewarmStatus` adds it for the moment it needs and puts it back. Once per kind of model is enough: status materials are shared by every character that uses the same source material, and each character's own values (how frozen, how burnt) are read per object at draw time. `SkeletonUtils.clone` shares materials; if you recolour clones, share one recoloured material per colour instead of cloning it per character.
 - Each character gets one swapped material shared by all its statuses; after `prewarmStatus`, adding, stacking and removing statuses compiles nothing new, even on other characters that use the same model.
@@ -276,7 +277,7 @@ torch.stop();                                                // fade out and rem
 | `portal` | arcane | Upright oval gate with a swirling vortex; motes are pulled in. Faces +Z, turn it with `rotation` |
 | `sigil` | arcane | Two counter-rotating magic circles on the ground with a faint light column and rising runes |
 | `savepoint` | light | Floating, spinning crystal over a pedestal with a light column |
-| `barrier` | light | 2.4 m hexagon dome over a magic circle; `impact(point)` ripples, shatters when stopped |
+| `barrier` | light | Hexagon dome 2.4 m in radius over a magic circle; `impact(point)` ripples, shatters when stopped |
 | `aura` | fire | Flaming aura sized to the Object3D you pass as `at`; follows it. Bright at the outline and thin in front, so the character stays visible |
 | `beacon` | light | 14 m pillar of light visible from far away, for quest markers |
 
@@ -359,13 +360,46 @@ new FXSystem({
 
 These are the mistakes AI assistants and people make most often:
 
-1. Import three from `three/webgpu`, never from `three`, and TSL from `three/tsl`. Two copies of three in one page break node materials.
+1. In your own code, import three from `three/webgpu`, never from `three`, and TSL from `three/tsl`. Mixing the two in your code breaks node materials; addons that import `three` themselves are fine (see "Coming from WebGLRenderer").
 2. `await renderer.init()` before the first frame.
 3. Call `fx.update(seconds)` and then `fx.render()` every frame (clamp the delta, for example to 0.05 s). `fx.render()` also works with `post: false`; it applies the camera shake only for that render and puts the camera back.
 4. `fx.add()` a definition before calling `fx.play(id)` by its id, or pass the definition itself: `fx.play(effect('nova', 'ice'), { from, to })`. Passing it is simpler when definitions come and go (per enemy, per placed object): nothing piles up. `fx.has(id)` and `fx.remove(id)` manage the added ones.
 5. Call `await fx.prewarm()` once while loading, otherwise the first cast of each move stutters. For a loading bar, pass a callback that gets 0–1: `fx.prewarm({}, (p) => (progress.value = p))`.
 6. Use a `WebGPURenderer`. The classic `WebGLRenderer` cannot run TSL; `WebGPURenderer` falls back to WebGL2 on its own.
 7. On window resize, call `renderer.setSize()` and update the camera's aspect as usual. `FXSystem` reads the size every frame; there is nothing to resize on it.
+
+## Coming from WebGLRenderer
+
+rollshade is written in TSL, which only `WebGPURenderer` runs, so a game on the classic `WebGLRenderer` has to switch renderers first. `WebGPURenderer` falls back to WebGL2 by itself, so you do not lose devices without WebGPU. Most of a scene carries over (meshes, lights, standard materials, textures, GLTF models, skinning and animation, loaders, controls, raycasting); what changes is below, checked against three r186.
+
+1. **Imports.** Change your own `import * as THREE from 'three'` to `'three/webgpu'`. Addons such as `GLTFLoader` and `OrbitControls` keep importing `'three'` and work as they are: both builds share one core.
+2. **Renderer.** `new THREE.WebGPURenderer({ antialias: true })` takes the same size, pixel ratio, tone mapping and shadow settings. Call `await renderer.init()` before the first `render()` (it throws otherwise), and drive the game with `renderer.setAnimationLoop()`. `renderAsync()` is deprecated; use `render()`.
+3. **Custom shaders.** `ShaderMaterial`, `RawShaderMaterial` and `onBeforeCompile` do not run, not even on the WebGL2 fallback. Rewrite them as node materials with TSL (`MeshStandardNodeMaterial`, `MeshBasicNodeMaterial`…): set `colorNode`, `emissiveNode`, `positionNode` or `opacityNode` instead of editing GLSL strings.
+
+   ```js
+   // before: ShaderMaterial with uniforms { uTime, uColor } and gl_FragColor = vec4(uColor * (0.6 + 0.4 * sin(uTime * 3.0)), 1.0)
+   import { color, sin, time, uniform, positionLocal, normalLocal } from 'three/tsl';
+   const pulse = new THREE.MeshBasicNodeMaterial();
+   pulse.colorNode = color('#44ccff').mul(sin(time.mul(3)).mul(0.4).add(0.6)); // time counts seconds by itself
+   // before: onBeforeCompile pushing vertices out along the normal
+   const swell = uniform(0.1);                       // swell.value = 0.2 later, like a uniform
+   const blob = new THREE.MeshStandardNodeMaterial({ color: '#8f6' });
+   blob.positionNode = positionLocal.add(normalLocal.mul(swell));
+   // before: onBeforeCompile darkening a standard material with a world-space grid
+   import { materialColor, positionWorld, step, max } from 'three/tsl';
+   const cell = positionWorld.xz.fract().sub(0.5).abs();
+   floor.material = new THREE.MeshStandardNodeMaterial({ color: '#5a6b55', roughness: 0.9 });
+   floor.material.colorNode = materialColor.mul(step(0.47, max(cell.x, cell.y)).mul(0.15).add(0.85));
+   ```
+
+   `colorNode` replaces `color` and `map`; start from `materialColor` to keep them, as above. GLSL names map to TSL nodes: world position (`modelMatrix * vec4(position, 1.0)`) is `positionWorld`, `position` is `positionLocal`, `normalMatrix * normal` is `normalView`, `vUv` is `uv()`, and `fract`, `abs`, `step`, `mix`, `smoothstep`, `sin` keep their names and argument order as methods or functions.
+4. **Addons built on ShaderMaterial** have node versions: `Sky` → `SkyMesh`, `Water` → `WaterMesh`, `Water2` → `Water2Mesh` (all in `three/addons/objects/`), `Lensflare` → `LensflareMesh`, `Line2` / `LineSegments2` / `Wireframe` → `three/addons/lines/webgpu/`, `Reflector` → `reflector()` from `three/tsl`. Their uniforms become properties of the mesh: `sky.material.uniforms.sunPosition.value` is `sky.sunPosition.value` on a `SkyMesh`.
+5. **Post processing.** `EffectComposer` and its passes do not run. If you used it only for bloom (`UnrealBloomPass` + `OutputPass`), drop it and pass `post: true` to `FXSystem`: `post: { bloom: 'scene' }` blooms everything bright like `UnrealBloomPass`, the default blooms only the effects, and `fx.glow(object)` adds your own glowing objects (a crystal, a neon sign) to it. Start from rollshade's bloom defaults rather than copying the `UnrealBloomPass` numbers, and tune with `fx.setBloom()`. Other passes become TSL nodes in a `THREE.RenderPipeline` (called `PostProcessing` before r183) with effects from `three/addons/tsl/display/` (`BloomNode`, `FXAANode`, `SMAANode`, `OutlineNode`, `GTAONode`…); then pass `post: false` to `FXSystem` and render your pipeline, which leaves out rollshade's bloom and camera shake. The color space and tone mapping are applied at the end by the renderer, so `OutputPass` has no replacement.
+6. **Shadows.** `PCFSoftShadowMap` was removed in r186 from both renderers (it falls back to `PCFShadowMap` with a warning); use `PCFShadowMap` and recheck `shadow.bias`.
+7. **Smaller renames.** `THREE.Clock` is deprecated: use `THREE.Timer` and call `timer.update(ms)` each frame. `WebGLCubeRenderTarget` is `CubeRenderTarget`. `renderer.isWebGPURenderer` is true on both backends; `renderer.backend.isWebGPUBackend` (after `init()`) tells WebGPU from the WebGL2 fallback. `new WebGPURenderer({ forceWebGL: true })` tests the fallback.
+8. **Then add rollshade**: create the `FXSystem` after `init()`, `await fx.prewarm()` while loading, and replace `renderer.render(scene, camera)` with `fx.update(dt)` and `fx.render()` (Quick start). Libraries that patch shaders or render through `WebGLRenderer` (for example pmndrs `postprocessing` and `@react-three/postprocessing`) need a WebGPU replacement; plain three objects need nothing.
+
+For the official overview, see the three.js manual page "WebGPURenderer". `npx degit tsuyatt/rollshade/examples/starter` gives a project already set up this way.
 
 ## For AI coding assistants
 

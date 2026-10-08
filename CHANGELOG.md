@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2 (2026-10-08)
+
+- `fx.play()` takes only the end a move uses: `fx.play('fire-finale', { to: enemy })`, `fx.play('light-buff', { from: hero })`. `from` can now be left out and defaults to `to` (`to` already defaulted to `from`); calls with neither throw a clear error, and existing calls with both keep working.
+- "Coming from WebGLRenderer" in the README: what changes when a WebGLRenderer game moves to WebGPURenderer for rollshade (imports, `init()`, `ShaderMaterial` and `onBeforeCompile` to TSL with examples, node versions of `Sky`, `Water` and others, `EffectComposer` and bloom, shadows, renames), checked by having an AI assistant migrate a WebGL scene with sky, shadows, custom shaders and bloom from these docs alone.
+- The README says which three releases have been checked and how (0.186.0 and 0.186.1).
+- Docs: the status section explains that a custom material look (a `colorNode` of your own) pauses while a status runs and comes back afterwards, and that props work too.
+
 ## 0.5.1 (2026-10-07)
 
 Docs only, from watching an AI assistant build a small game with nothing but these docs:
