@@ -1,15 +1,15 @@
-// Rollshade FX runtime 0.5.2 — https://rollshade.tsuyatt.com/
+// Rollshade FX runtime 0.6.0 — https://rollshade.tsuyatt.com/
 // Copyright (c) 2026 tsuyatt. MIT License (see the LICENSE file or https://www.npmjs.com/package/rollshade).
 // psrdnoise3 and permute4 are ported from psrdnoise (https://github.com/stegu/psrdnoise), Copyright (c) 2021 Stefan Gustavson and Ian McEwan, MIT License (see the LICENSE file).
 // Needs three r186 (three/webgpu, three/tsl, three/addons). three.js is MIT licensed.
 import type * as THREE from 'three/webgpu';
 
-export declare const VERSION: '0.5.2';
+export declare const VERSION: '0.6.0';
 
 /** A point, or an Object3D whose world position is used. Both are read again every frame, so moving the object or changing the vector in place (`v.copy(p)`) moves the effect with it. */
 export type Anchor = THREE.Vector3 | THREE.Object3D;
 
-export type RecipeName = 'projectile' | 'lance' | 'beam' | 'explosion' | 'pillar' | 'meteor' | 'nova' | 'barrier' | 'shockwave' | 'summon' | 'missiles' | 'tornado' | 'storm' | 'drill' | 'finale' | 'heal' | 'buff' | 'warp' | 'slash' | 'swipe' | 'rising' | 'cleave' | 'combo' | 'wave' | 'dash' | 'flurry' | 'thrust' | 'spin' | 'cross' | 'smash' | 'iaido' | 'strike' | 'rush' | 'uppercut' | 'kick' | 'heel' | 'palm' | 'tackle' | 'pound';
+export type RecipeName = 'projectile' | 'lance' | 'beam' | 'explosion' | 'pillar' | 'meteor' | 'nova' | 'barrier' | 'shockwave' | 'summon' | 'missiles' | 'tornado' | 'storm' | 'drill' | 'torrent' | 'pillars' | 'nine' | 'chain' | 'bind' | 'prison' | 'pyramid' | 'finale' | 'heal' | 'buff' | 'warp' | 'slash' | 'swipe' | 'rising' | 'cleave' | 'combo' | 'wave' | 'dash' | 'flurry' | 'thrust' | 'spin' | 'cross' | 'smash' | 'iaido' | 'strike' | 'rush' | 'uppercut' | 'kick' | 'heel' | 'palm' | 'tackle' | 'pound';
 
 export type ElementName = 'plain' | 'fire' | 'ice' | 'thunder' | 'wind' | 'earth' | 'water' | 'light' | 'dark' | 'poison' | 'arcane';
 

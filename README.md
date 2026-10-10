@@ -8,7 +8,7 @@ fx.play(effect('meteor', 'fire'), { from: hero.hand, to: enemy });
 
 [![Rollshade: a meteor, a frozen character, a portal and an iaido cut](https://rollshade.tsuyatt.com/og.png)](https://rollshade.tsuyatt.com/gallery/)
 
-39 moves (14 magic, 13 blade, 8 fists and kicks, 4 support and event) × 11 elements, each with endless seeded variations, 11 status effects and 9 placeable loops. Browse, tune and export them at [rollshade.tsuyatt.com](https://rollshade.tsuyatt.com/), watch them all in the [gallery](https://rollshade.tsuyatt.com/gallery/), or play the [demo game](https://rollshade.tsuyatt.com/demo/) built with this package.
+46 moves (21 magic, 13 blade, 8 fists and kicks, 4 support and event) × 11 elements, each with endless seeded variations, 11 status effects and 9 placeable loops. Browse, tune and export them at [rollshade.tsuyatt.com](https://rollshade.tsuyatt.com/), watch them all in the [gallery](https://rollshade.tsuyatt.com/gallery/), or play the [demo game](https://rollshade.tsuyatt.com/demo/) built with this package.
 
 ## Install
 
@@ -68,7 +68,7 @@ renderer.setAnimationLoop((ms) => {
 
 ## Moves
 
-`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`, also with `params` or `color`. With a `seed` the id gets the seed added, so pass your own `id` (`effect('nova', 'ice', { seed: 3, id: 'nova' })`) or play `def.id`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado` and `missiles` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall. For a spot on the ground with no one there (a mouse click), lift `to` to chest height (`y` ≈ 1); the `hit` events fire anyway, so test what is near `e.point` in the handler.
+`effect(recipe, element)` gives the id `` `${element}-${recipe}` ``, for example `fire-meteor`, also with `params` or `color`. With a `seed` the id gets the seed added, so pass your own `id` (`effect('nova', 'ice', { seed: 3, id: 'nova' })`) or play `def.id`. `from` and `to` take a `THREE.Vector3` or a `THREE.Object3D`. Both are read again every frame, so a moving object, or a vector you change in place (`v.copy(p)`), is followed (except that `explosion`, `pillar`, `meteor`, `summon`, `tornado`, `missiles`, `torrent`, `pillars` and `prison` aim at where the target is when they are cast). Positions are in metres; characters are assumed to be about 1.8 m tall. For a spot on the ground with no one there (a mouse click), lift `to` to chest height (`y` ≈ 1); the `hit` events fire anyway, so test what is near `e.point` in the handler.
 
 | recipe | kind | from | to | what happens |
 |---|---|---|---|---|
@@ -86,6 +86,13 @@ renderer.setAnimationLoop((ms) => {
 | `tornado` | magic | caster's hand | target | Tornado drifts onto the target, ticks, then flings it |
 | `storm` | magic | caster's hand | target | Elemental weather over an area: fire rain, blizzard, thunderstorm, sandstorm… |
 | `drill` | magic | caster's hand | target | Spinning cone that grinds into the target, then pierces |
+| `torrent` | magic | caster's hand | target | Widening cone of energy from the palm that engulfs the target with ticking hits, then a big final hit |
+| `pillars` | magic | caster's hand | target's centre | Five slabs fall from the sky around the target, a star of light joins them on the ground, then they sink away |
+| `nine` | magic | caster's hand | target's centre | Nine dark orbs spiral in, settle in a ring on the target's caster-facing side (`params: { space }` sets the ring size), then burst |
+| `chain` | magic | caster's hand | target's centre | A chain shoots out, coils loosely around the target without stopping and cinches tight, then snaps |
+| `bind` | magic | caster's hand | target's centre | Six light plates fly in on one plane tilted toward the caster and pierce the target, then shatter like glass |
+| `prison` | magic | caster's hand | target's centre | A box around the target draws its edges from the bottom up, fills in its faces, spears break out, then it shatters like glass |
+| `pyramid` | magic | caster's chest | (leave out) | Pyramid ward built edges-first around the caster's feet; sparks where it is struck, then it shatters |
 | `slash` | blade | attacker's chest | target | Diagonal downward cut; hits when the blade crosses the target |
 | `swipe` | blade | attacker's chest | target | Just the swing trail and a few sparks, still with a hit event: the quietest blade move |
 | `rising` | blade | attacker's chest | target | Upward cut that knocks the target up |
@@ -111,6 +118,8 @@ renderer.setAnimationLoop((ms) => {
 | `buff` | support | caster's chest | (leave out) | Burst and a lasting aura on the caster |
 | `warp` | support | caster's chest | destination | Caster vanishes and reappears on the ground 0.9–1.8 m in front of `to`, on the caster's side (`vanish` / `appear` events carry ground points) |
 | `finale` | event | (leave out) | enemy's chest | Defeat: light rays, chained blasts, implosion and a flash |
+
+`pillars`, `nine`, `chain`, `bind` and `prison` wrap around `to`, so pass the target's centre (chest height). If you pass a point on the target's surface instead, `params: { depth: 0.3 }` moves them that many metres further along the line from the caster.
 
 Blade, fist and kick moves expect the attacker about 2 m from the target (`dash` and `tackle` cover the gap themselves). The blade path is written to `handle.blade.base` / `handle.blade.tip` every frame, so you can attach your own sword to it; fist and kick moves write the fist or foot to `handle.head` instead and set `handle.body.limb` to `'fist'` or `'foot'`. `handle.body` also carries hints for animating the attacker: `offset` (root movement since the move started, for steps, dashes and jumps), `lean` and `turn` in radians. `offset` returns to zero as the move settles; to keep the distance a `dash` or `tackle` covered, move your character by the furthest offset rather than following it back. Every `hit` event has `dir`, the direction to knock the target back (up for `rising` and `uppercut`, down for `cleave` and `heel`).
 
@@ -180,8 +189,15 @@ MOVES.combo.timeline;  // [[seconds after fx.play(), power, role], …]
 | `tornado` | 8 | 6.08 | 1.09 → 3.03 | +0.04 → 0 | 3.63 |
 | `storm` | 2–6 | 4.63 | 0.93 → 3.93 | — | 4.95 |
 | `drill` | 12 | 9.27 | 0.92 → 1.76 | +0.09 | 2.27 |
+| `torrent` | 3 | 2.68 | 0.85 → 1.1 | +0.08 → 0 | 2 |
+| `pillars` | 6 | 5.17 | 0.6 → 1.31 | — | 3.05 |
+| `nine` | 10 | 3.62 | 0.89 → 3.02 | — | 3.42 |
+| `chain` | 2 | 1.93 | 0.52 → 1.5 | +0.03 → 0 | 3.23 |
+| `bind` | 6 | 2.1 | 0.58 → 0.82 | — | 2.91 |
+| `prison` | 11 | 7.48 | 1.17 → 3.08 | — | 3.93 |
+| `pyramid` | 0 | — | — | — | 3.73 |
 | `finale` | 6 | 4.95 | 0.25 → 1.52 | — | 3.03 |
-| `heal` | 1 | 0 | 0.62 | — | 2.93 |
+| `heal` | 1 | 0 | 0.62 | — | 2.92 |
 | `buff` | 0 | — | — | — | 3.74 |
 | `warp` | 0 | — | — | — | 0.89 |
 | `slash` | 1 | 1.08 | 0.15 | — | 0.75 |

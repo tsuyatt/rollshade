@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, abs, instancedDynamicBufferAttribute, varying, atan, clamp, dot, exp, float, max, mix, mod, mx_noise_float, normalView, positionLocal, positionView, pow, select, smoothstep, uniform, uniformArray, uv, vec2, vec3 } from 'three/tsl';
+import { Fn, abs, instancedDynamicBufferAttribute, varying, atan, clamp, dot, exp, float, max, min, mix, mod, mx_noise_float, normalView, positionLocal, positionView, pow, select, smoothstep, uniform, uniformArray, uv, vec2, vec3 } from 'three/tsl';
 import { patternCircle, type CirclePattern } from './shaders';
 import { seedShift, tnoise } from './noise';
 import { bandMaterial, hitmarkMaterial, lathePrim, linesMaterial } from './shapes';
@@ -482,6 +482,99 @@ function voidPrim(): Prim {
   return { mesh: shared(new THREE.Mesh(sphereGeo, m)), u };
 }
 
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const spearGeo = new THREE.ConeGeometry(1, 1, 7, 1).translate(0, 0.5, 0);
+
+const edgeOf = (size: N): N => {
+  const e: N = float(0.5).sub(abs(positionLocal)).mul(size);
+  return e.x.add(e.y).add(e.z).sub(max(max(e.x, e.y), e.z)).sub(min(min(e.x, e.y), e.z));
+};
+
+function platePrim(): Prim {
+  const u = { size: uniform(new THREE.Vector3(1, 1, 1)), time: uniform(0), core: uniform(new THREE.Color()), main: uniform(new THREE.Color()), accent: uniform(new THREE.Color()), bright: uniform(1), fade: uniform(1), heat: uniform(0) };
+  const m = additive();
+  const d: N = edgeOf(u.size);
+  const rim: N = exp(d.div(0.025).negate());
+  const along: N = positionLocal.z.add(0.5);
+  const n: N = tnoise(vec2(positionLocal.x.mul(1.5), along.mul(u.size.z).mul(0.8).sub(u.time.mul(1.6)))).r;
+  const tip: N = smoothstep(0.75, 1, along);
+  const fill: N = n.mul(0.35).add(0.3).add(tip.mul(0.4)).add(u.heat);
+  const col: N = mix(mix(u.accent, u.main, clamp(fill, 0, 1)), u.core, clamp(rim.add(u.heat.mul(0.6)), 0, 1));
+  m.colorNode = col.mul(fill.add(rim.mul(1.6))).mul(u.bright).mul(u.fade);
+  return { mesh: shared(new THREE.Mesh(boxGeo, m)), u };
+}
+
+function slabPrim(): Prim {
+  const u = { size: uniform(new THREE.Vector3(1, 1, 1)), time: uniform(0), seed: uniform(0), core: uniform(new THREE.Color()), main: uniform(new THREE.Color()), accent: uniform(new THREE.Color()), bright: uniform(1), fade: uniform(1), seam: uniform(0.4), vein: uniform(0), reveal: uniform(1) };
+  const m = new THREE.MeshBasicNodeMaterial();
+  m.alphaTest = 0.5;
+  const d: N = edgeOf(u.size);
+  const rim: N = exp(d.div(0.035).negate());
+  const q: N = positionLocal.xy.mul(u.size.xy).add(positionLocal.z.mul(u.size.z).mul(0.7)).add(seedShift(u.seed));
+  const n: N = tnoise(q.mul(0.22)).r;
+  const crack: N = exp(abs(n.sub(0.5)).div(0.018).negate()).mul(u.vein);
+  const face: N = float(1).sub(abs(normalView.dot(positionView.normalize().negate()))).max(0).pow(3);
+  const base: N = u.accent.mul(0.06).add(u.main.mul(face.mul(0.05)));
+  const yy: N = positionLocal.y.add(0.5);
+  const r: N = u.reveal.mul(1.06);
+  const shown: N = float(1).sub(smoothstep(r.sub(0.001), r, yy));
+  const front: N = exp(yy.sub(r).div(0.025).pow(2).negate()).mul(step1(u.reveal));
+  const glow: N = rim.mul(u.seam).add(crack).add(front.mul(2.5));
+  m.colorNode = base.add(mix(u.main, u.core, clamp(glow.sub(0.6), 0, 1)).mul(glow).mul(u.bright));
+  m.opacityNode = u.fade.mul(shown);
+  return { mesh: shared(new THREE.Mesh(boxGeo, m)), u };
+}
+
+function spearPrim(): Prim {
+  const u = { core: uniform(new THREE.Color()), main: uniform(new THREE.Color()), accent: uniform(new THREE.Color()), bright: uniform(1), fade: uniform(1) };
+  const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: true });
+  const edge: N = float(1).sub(abs(normalView.dot(positionView.normalize().negate()))).max(0);
+  const y: N = positionLocal.y;
+  const tip: N = smoothstep(0.7, 1, y);
+  const glow: N = edge.pow(2).mul(1.2).add(tip.mul(1.8));
+  m.colorNode = u.accent.mul(0.05).add(mix(u.main, u.core, tip).mul(glow).mul(u.bright));
+  m.opacityNode = u.fade;
+  return { mesh: shared(new THREE.Mesh(spearGeo, m)), u };
+}
+
+export const CHAIN_LINKS = 96;
+const linkGeo = new THREE.TorusGeometry(1, 0.26, 6, 14);
+
+function chainPrim(): Prim {
+  const u = { core: uniform(new THREE.Color()), main: uniform(new THREE.Color()), accent: uniform(new THREE.Color()), bright: uniform(1), heat: uniform(0) };
+  const m = new THREE.MeshBasicNodeMaterial();
+  const edge: N = float(1).sub(abs(normalView.dot(positionView.normalize().negate()))).max(0);
+  const glow: N = edge.pow(1.6).mul(0.9).add(u.heat);
+  m.colorNode = mix(u.accent.mul(0.12), u.main, clamp(glow, 0, 1)).add(u.core.mul(u.heat.mul(0.5))).mul(glow.add(0.25)).mul(u.bright);
+  const mesh = new THREE.InstancedMesh(linkGeo, m, CHAIN_LINKS);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.count = 0;
+  mesh.frustumCulled = false;
+  mesh.userData.sharedGeometry = true;
+  return { mesh, u };
+}
+
+const shellGeo = new THREE.ConeGeometry(1, 1, 4, 1, true).translate(0, 0.5, 0);
+
+function shellPrim(): Prim {
+  const u = { time: uniform(0), core: uniform(new THREE.Color()), main: uniform(new THREE.Color()), accent: uniform(new THREE.Color()), bright: uniform(1), fade: uniform(1), reveal: uniform(1), flash: uniform(0) };
+  const m = additive();
+  const a: N = uv().x.mul(4).fract();
+  const y: N = uv().y;
+  const side: N = exp(min(a, float(1).sub(a)).div(0.012).negate());
+  const base: N = exp(y.div(0.015).negate());
+  const facet: N = float(1).sub(abs(normalView.dot(positionView.normalize().negate()))).max(0).pow(2);
+  const n: N = tnoise(vec2(uv().x.mul(6), y.mul(2).sub(u.time.mul(0.3)))).r;
+  const grid: N = exp(abs(n.sub(0.5)).div(0.02).negate()).mul(0.5);
+  const r: N = u.reveal.mul(1.04);
+  const shown: N = float(1).sub(smoothstep(r.sub(0.03), r, y));
+  const front: N = exp(y.sub(r).div(0.025).pow(2).negate()).mul(step1(u.reveal));
+  const dens: N = side.add(base).mul(1.4).add(facet.mul(0.5).add(0.06).add(grid).add(u.flash).mul(shown)).add(front.mul(2));
+  const col: N = mix(mix(u.accent, u.main, clamp(dens, 0, 1)), u.core, clamp(side.add(base).add(front).add(u.flash), 0, 1));
+  m.colorNode = col.mul(dens).mul(u.bright).mul(u.fade);
+  return { mesh: shared(new THREE.Mesh(shellGeo, m)), u };
+}
+
 export const PRIM_FACTORIES: Record<string, () => Prim> = {
   arc: arcPrim,
   ribbon: ribbonPrim,
@@ -492,6 +585,11 @@ export const PRIM_FACTORIES: Record<string, () => Prim> = {
   lathe: lathePrim(false),
   latheSmoke: lathePrim(true),
   helix: arcPrim,
+  plate: platePrim,
+  slab: slabPrim,
+  spear: spearPrim,
+  chain: chainPrim,
+  shell: shellPrim,
 };
 
 export function stripGeometry(geometry: THREE.BufferGeometry, points: THREE.Vector3[], width: (i: number) => number, camera: THREE.Camera): void {

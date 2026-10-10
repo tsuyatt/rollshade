@@ -584,7 +584,7 @@ export class FXSystem {
   }
 
   async prewarm(counts: Partial<Record<string, number>> = {}, onProgress?: (progress: number) => void): Promise<void> {
-    const want: Record<string, number> = { arc: 8, ribbon: 20, bolt: 48, beam: 12, shield: 3, void: 4, lathe: 8, latheSmoke: 3, helix: 8, ...counts };
+    const want: Record<string, number> = { arc: 8, ribbon: 20, bolt: 48, beam: 12, shield: 3, void: 4, lathe: 8, latheSmoke: 3, helix: 8, plate: 12, slab: 5, spear: 12, chain: 1, shell: 1, ...counts };
     const made: { type: string; prim: ReturnType<PrimPool['fill']>[number] }[] = [];
     for (const [type, n] of Object.entries(want)) for (const prim of this.prims.fill(type, n ?? 0)) made.push({ type, prim });
     const o = new THREE.Vector3();
@@ -594,6 +594,7 @@ export class FXSystem {
       if (type === 'arc') arcGeometry(prim.mesh.geometry, o, x, z, 0, 1, 0.5, 1);
       else if (type === 'ribbon') new RibbonTrail(prim, RIBBON_LENGTH, 0.1);
       else if (type === 'helix') helixGeometry(prim.mesh.geometry, { center: o, r0: 1, r1: 1, height: 1, turns: 1, width: 0.1 });
+      else if (type === 'chain') (prim.mesh as THREE.InstancedMesh).count = 1;
       else if (type === 'bolt') stripGeometry(prim.mesh.geometry, Array.from({ length: BOLT_POINTS }, (_, i) => new THREE.Vector3(i, 0, 0)), () => 0.1, this.camera);
       prim.mesh.position.set(0, -1000, 0);
       prim.mesh.scale.setScalar(0.001);

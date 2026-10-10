@@ -5,6 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Rollshade Arena — three.js spell and melee effects demo</title>
     <meta name="description" content="A small arena game built with the rollshade npm package: play a mage, a swordsman or a brawler, with spells, sword and fist effects, status effects and placed loops for three.js WebGPU." />
+    <link rel="canonical" href="https://rollshade.tsuyatt.com/demo/" />
+    <link rel="icon" href="https://rollshade.tsuyatt.com/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="https://rollshade.tsuyatt.com/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="https://rollshade.tsuyatt.com/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Rollshade" />
+    <meta property="og:url" content="https://rollshade.tsuyatt.com/demo/" />
+    <meta property="og:title" content="Rollshade Arena — three.js spell and melee effects demo" />
+    <meta property="og:description" content="A small arena game built with the rollshade npm package: play a mage, a swordsman or a brawler, with spells, sword and fist effects, status effects and placed loops for three.js WebGPU." />
+    <meta property="og:image" content="https://rollshade.tsuyatt.com/og.png?v=2" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Rollshade — spell, status and placed effects for three.js, npm i rollshade" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Rollshade Arena — three.js spell and melee effects demo" />
+    <meta name="twitter:description" content="A small arena game built with the rollshade npm package: play a mage, a swordsman or a brawler, with spells, sword and fist effects, status effects and placed loops for three.js WebGPU." />
+    <meta name="twitter:image" content="https://rollshade.tsuyatt.com/og.png?v=2" />
+    <meta name="twitter:image:alt" content="Rollshade — spell, status and placed effects for three.js, npm i rollshade" />
     <style>
       html, body { margin: 0; height: 100%; background: #07080d; color: #e6e8ef; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; user-select: none; }
       #view { position: absolute; inset: 0; cursor: crosshair; }
@@ -17,7 +37,8 @@
       .skill b { font-size: 13px; color: #fff; }
       .skill i { position: absolute; left: 0; right: 0; bottom: 0; background: #000a; height: 0; }
       #center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; pointer-events: none; text-align: center; }
-      #center h1 { margin: 0; font-size: 34px; letter-spacing: 0.04em; }
+      #title { margin: 0; font: inherit; }
+      #center h2 { margin: 0; font-size: 34px; letter-spacing: 0.04em; }
       #center .box { background: #07080dcc; border: 1px solid #2d3345; border-radius: 14px; padding: 22px 32px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
       #center .jobs { display: flex; gap: 8px; pointer-events: auto; }
       #center .jobs button { padding: 8px 16px; border-radius: 8px; border: 1px solid #333a4a; background: #151823cc; color: #e6e8ef; font: inherit; font-size: 14px; cursor: pointer; }
@@ -66,7 +87,7 @@
     <div id="view"></div>
     <div id="labels"></div>
     <div id="loading"><b>Rollshade Arena</b><div><i></i></div><span>Loading</span></div>
-    <div id="hud"><div id="title">Rollshade Arena</div><div id="hp"><div></div></div><div id="info"></div></div>
+    <div id="hud"><h1 id="title">Rollshade Arena</h1><div id="hp"><div></div></div><div id="info"></div></div>
     <div id="skills"></div>
     <div id="center"></div>
     <div id="code" hidden><header><span>The code for <b></b></span><span>C to hide</span></header><pre></pre><footer><code>npm i rollshade</code> · <a href="https://rollshade.tsuyatt.com/guide/#npm" target="_blank" rel="noopener">How to add it to your game</a></footer></div>

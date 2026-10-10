@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 (2026-10-10)
+
+- 7 magic moves, 46 in all: `torrent` (a widening cone of energy from the palm), `pillars` (five slabs fall around the target and are joined by a star of light), `nine` (nine dark orbs spiral in and seal the target, then burst; `space` sets the ring size), `chain` (a chain coils around the target and cinches tight), `bind` (six light plates on one tilted plane pierce the target, then shatter like glass), `prison` (a box builds its edges from the bottom up around the target, spears break out, then it shatters), `pyramid` (a pyramid ward around the caster, built edges-first). `pillars`, `nine`, `chain`, `bind` and `prison` wrap around `to`; pass the target's centre, or `params: { depth }` to move them behind a surface point.
+- `prewarm()` also prepares the parts of the new moves by default.
+
 ## 0.5.2 (2026-10-08)
 
 - `fx.play()` takes only the end a move uses: `fx.play('fire-finale', { to: enemy })`, `fx.play('light-buff', { from: hero })`. `from` can now be left out and defaults to `to` (`to` already defaulted to `from`); calls with neither throw a clear error, and existing calls with both keep working.

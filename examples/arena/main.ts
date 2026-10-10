@@ -390,7 +390,7 @@ const center = document.getElementById('center')!;
 
 function title(): void {
   const jobs = JOBS.map((j) => `<button data-job="${j}"${j === job ? ' class="on"' : ''}>${JOB_NAMES[j]}</button>`).join('');
-  center.innerHTML = `<h1>Rollshade Arena</h1><div class="jobs">${jobs}</div><div>WASD to move · mouse to aim · click, 1–4 and Space to ${job === 'mage' ? 'cast' : 'attack'} · Esc for the menu</div>`;
+  center.innerHTML = `<h2>Rollshade Arena</h2><div class="jobs">${jobs}</div><div>WASD to move · mouse to aim · click, 1–4 and Space to ${job === 'mage' ? 'cast' : 'attack'} · Esc for the menu</div>`;
   for (const b of center.querySelectorAll<HTMLButtonElement>('button[data-job]')) b.addEventListener('pointerdown', (e) => (e.stopPropagation(), setJob(b.dataset.job as Job)));
 }
 title();
@@ -834,7 +834,7 @@ function victory(): void {
   burst();
   const m = Math.floor(state.clock / 60);
   const sec = String(Math.floor(state.clock % 60)).padStart(2, '0');
-  center.innerHTML = `<div class="box"><h1>Clear!</h1><div>All ${LAST_WAVE} waves · score ${state.score} · ${m}:${sec}</div><div class="thanks">Thank you for playing Rollshade Arena!</div><div>R to play again · Esc for the menu</div>${MADE}</div>`;
+  center.innerHTML = `<div class="box"><h2>Clear!</h2><div>All ${LAST_WAVE} waves · score ${state.score} · ${m}:${sec}</div><div class="thanks">Thank you for playing Rollshade Arena!</div><div>R to play again · Esc for the menu</div>${MADE}</div>`;
 }
 
 function restart(): void {
@@ -864,7 +864,7 @@ function gameOver(): void {
   hero.mixer.timeScale = 0;
   for (const r of fx.statusesOf(hero.root)) r.finish();
   fx.status(hero.root, 'petrify', { duration: 1.2 });
-  center.innerHTML = `<div class="box"><h1>Petrified</h1><div>Wave ${state.wave}/${LAST_WAVE} · score ${state.score} · press R to try again or Esc for the menu</div>${MADE}</div>`;
+  center.innerHTML = `<div class="box"><h2>Petrified</h2><div>Wave ${state.wave}/${LAST_WAVE} · score ${state.score} · press R to try again or Esc for the menu</div>${MADE}</div>`;
 }
 
 function resize(): void {
